@@ -1,6 +1,11 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+/** Owner-only permissions for workflow run directories (transcripts/results may hold secrets). */
+const PRIVATE_DIR_MODE = 0o700;
+/** Owner-only permissions for workflow artifact files. */
+const PRIVATE_FILE_MODE = 0o600;
+
 export interface SerializationOptions {
   maxBytes?: number;
   maxDepth?: number;
@@ -144,12 +149,41 @@ export function safeStringify(
   return JSON.stringify({ truncated: true });
 }
 
+/**
+ * Force owner-only permissions on a path we just created. The `mode` passed
+ * to `mkdir`/`open` is still subject to the process umask, which can only
+ * strip bits from the requested mode, never add them — a typical umask
+ * (022, 077, ...) never touches the owner bits in 0o600/0o700, but an
+ * unusual umask that does (rare, but possible on a locked-down host) could
+ * leave the path *more* restrictive than intended and break subsequent
+ * reads/writes. An explicit `chmod` after creation pins the final mode
+ * exactly, independent of umask. Best-effort: Windows and some filesystems
+ * reject POSIX mode bits, so failures here are swallowed rather than
+ * breaking the write.
+ */
+function hardenPrivateMode(targetPath: string, mode: number) {
+  try {
+    fs.chmodSync(targetPath, mode);
+  } catch {
+    // Platform does not support POSIX permission bits; nothing more to do.
+  }
+}
+
 /** Durable same-directory replace: readers see either the old or new file. */
 export function writeFileAtomic(filePath: string, content: string) {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const directory = path.dirname(filePath);
+  fs.mkdirSync(directory, { recursive: true, mode: PRIVATE_DIR_MODE });
+  hardenPrivateMode(directory, PRIVATE_DIR_MODE);
   const temporary = `${filePath}.${process.pid}.${Date.now()}.tmp`;
   try {
-    fs.writeFileSync(temporary, content, { encoding: "utf8", mode: 0o600 });
+    fs.writeFileSync(temporary, content, {
+      encoding: "utf8",
+      mode: PRIVATE_FILE_MODE,
+    });
+    hardenPrivateMode(temporary, PRIVATE_FILE_MODE);
+    // Rename replaces any existing file's inode outright, so the file that
+    // readers see always carries the private mode set above — an existing
+    // world-readable artifact from before this policy cannot survive a write.
     fs.renameSync(temporary, filePath);
   } catch (error) {
     try {

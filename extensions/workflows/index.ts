@@ -18,7 +18,10 @@
  * `background: true` to return immediately and get a follow-up message when
  * the run finishes. Run artifacts (script, args, statuses, result) are saved
  * under `~/.pi/agent/workflows/<runId>/` for inspection; result and bounded
- * transcripts use separate artifacts, and there is no resume.
+ * transcripts use separate artifacts, and there is no resume. Artifacts are
+ * private to the owner (see serialization.ts) and are swept automatically
+ * once older than `WORKFLOW_RETENTION_MS` (see retention.ts); a run tracked
+ * as active in this process is never removed regardless of age.
  */
 
 import { randomBytes } from "node:crypto";
@@ -42,6 +45,7 @@ import {
   prepareWorkflowScript,
   type WorkflowMeta,
 } from "./meta.ts";
+import { cleanupExpiredWorkflowRuns } from "./retention.ts";
 import {
   agentContext,
   aggregateUsage,
@@ -289,6 +293,12 @@ export default function workflows(pi: ExtensionAPI) {
   pi.on("session_start", (_event, ctx) => {
     if (ctx.hasUI) lastUi = ctx.ui;
     updateIndicator();
+    // Best-effort retention sweep; cleanupExpiredWorkflowRuns already
+    // tolerates a missing directory and per-run failures internally.
+    cleanupExpiredWorkflowRuns(
+      path.join(getAgentDir(), "workflows"),
+      new Set(activeRuns.keys()),
+    );
   });
 
   pi.on("session_shutdown", async () => {

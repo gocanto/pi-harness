@@ -7,6 +7,13 @@
  * when neither exists is an official release downloaded into `bin/` — the
  * single case that shows a UI notification. Tools await that initialization
  * before executing, and report a clear error if it failed.
+ *
+ * Output beyond the standard limits spills to a private, owner-only temp
+ * file (see src/output.ts and src/process.ts); the pointer stays valid for
+ * the whole session, and every directory returned to the model is removed
+ * at session_shutdown via the session capture registry (src/session-captures.ts).
+ * A failed search's spilled output is discarded immediately rather than
+ * waiting for shutdown.
  */
 
 import { NodeServices } from "@effect/platform-node";
@@ -50,6 +57,7 @@ import {
   RG_TOOL_DESCRIPTION,
 } from "./src/prompt.ts";
 import { discardCapturedOutput, executeSearchProcess } from "./src/process.ts";
+import { createSessionCaptureRegistry } from "./src/session-captures.ts";
 
 export function makeBinaryInitializers(
   binDir: string,
@@ -122,6 +130,18 @@ export default function fileSearchTools(pi: ExtensionAPI) {
   const binDir = repositoryBinDir();
   const target = currentTarget();
   const initializers = makeBinaryInitializers(binDir, target, liveBinaryEnv);
+
+  /**
+   * Full-output spill directories returned to the model this session. The
+   * pointer stays valid for the whole session; directories are only removed
+   * at session_shutdown, and cleanup is idempotent (safe if shutdown fires
+   * more than once).
+   */
+  const captures = createSessionCaptureRegistry();
+
+  pi.on("session_shutdown", async () => {
+    await captures.cleanup();
+  });
 
   pi.on("session_start", async (_event, ctx) => {
     const exit = await Effect.runPromiseExit(
@@ -231,6 +251,8 @@ export default function fileSearchTools(pi: ExtensionAPI) {
           }
 
           const formatted = formatCapturedOutput(outcome.output);
+          if (formatted.fullOutputPath)
+            captures.track(formatted.fullOutputPath);
           return {
             content: [{ type: "text", text: formatted.text }],
             details: {
@@ -302,6 +324,8 @@ export default function fileSearchTools(pi: ExtensionAPI) {
           }
 
           const formatted = formatCapturedOutput(outcome.output);
+          if (formatted.fullOutputPath)
+            captures.track(formatted.fullOutputPath);
           return {
             content: [{ type: "text", text: formatted.text }],
             details: {
