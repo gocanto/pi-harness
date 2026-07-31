@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "check": "tsc --noEmit -p .",
-    "test": "node --test --experimental-strip-types artifacts.test.ts controller.test.ts dashboard.test.ts meta.test.ts retention.test.ts runner.test.ts sandbox.test.ts serialization.test.ts"
+    "test": "node --test --experimental-strip-types activation.test.ts artifacts.test.ts controller.test.ts dashboard.test.ts index.test.ts meta.test.ts retention.test.ts runner.test.ts sandbox.test.ts serialization.test.ts"
   },
   "devDependencies": {
     "@effect/tsgo": "^0.24.2",

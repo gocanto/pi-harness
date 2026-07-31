@@ -17,7 +17,7 @@ export const WORKFLOW_PARAMETER_DESCRIPTIONS = {
 
 /** Defines the workflow DSL, constraints, reliability guidance, and model-authored task examples. */
 export const WORKFLOW_TOOL_DESCRIPTION = [
-  "The workflow tool is only to be called when the user says 'ultracode' or specifically requests a workflow run.",
+  "The workflow tool is explicit opt-in: it only appears in your tool list once the user has enabled it (`/workflows enable`, or the PI_WORKFLOWS_ENABLED environment variable). There is no trigger phrase — call it whenever it is available and the task genuinely needs multi-agent fan-out, not for tasks a single agent can handle directly.",
   "Run a multi-agent workflow from a JavaScript orchestration script you write inline. Use this when a task benefits from fanning work out across several isolated subagents in ordered phases (research fan-out, per-file review, verify-then-synthesize pipelines).",
   "The script runs as an async function body with these primitives:",
   "• export const meta = { name, description, phases: [{ title, detail? }] } — metadata for the progress UI. Declare all phases up front.",

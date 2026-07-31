@@ -17,6 +17,22 @@ pnpm install
 
 The `file-search` extension registers `fd` and `rg` as model tools. No setup is normally needed: at startup it silently uses a system-installed `fd` (or `fdfind` on Debian/Ubuntu) and `rg` when available, or an existing fallback binary in `~/.pi/agent/bin/`. Only when neither exists does it download an official release binary (macOS/Linux, arm64/x64, over HTTPS) into `~/.pi/agent/bin/` and show a one-time notification. If your platform is unsupported, install `fd` and `rg` with your package manager and restart pi.
 
+## Workflows
+
+The `workflows` extension registers a `workflow` tool that lets the model fan work out across several isolated subagents in ordered phases (research fan-out, per-file review, verify-then-synthesize pipelines). Because each run can make up to 32 `agent()` calls with a global concurrency cap of 4, it is **explicit opt-in**: the tool is inactive by default, and there is no hidden trigger phrase — the model cannot call it until you turn it on.
+
+Control it with:
+
+```
+/workflows enable   # the model can now call the workflow tool
+/workflows disable  # the model can no longer call it
+/workflows status   # show whether it's enabled and why (env override, saved preference, or default)
+```
+
+The choice made by `/workflows enable`/`disable` is saved under `~/.pi/agent/workflows/activation.json` and applies to every future session until changed again. Set the `PI_WORKFLOWS_ENABLED` environment variable (`1`/`true`/`on`/`yes` to force on, `0`/`false`/`off`/`no` to force off) to override the saved preference for a single process — for example, to keep workflows off for an unattended or untrusted run regardless of what has been saved. Activation is never influenced by workflow scripts, agent output, or project files, so an untrusted project cannot enable itself.
+
+`/workflows` (with no arguments) still lists workflow runs, and `/workflows <runId>` still shows one run's detail, whether or not the tool is currently enabled.
+
 ## Testing
 
 Run the deterministic test suite before every change:
