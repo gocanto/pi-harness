@@ -15,6 +15,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
   query,
+  type Options,
   type SDKAssistantMessage,
   type SDKMessage,
   type SDKResultMessage,
@@ -152,6 +153,32 @@ const THINKING_BUDGETS = {
   xhigh: 32_000,
   max: 63_999,
 } satisfies Record<ReasoningEffort, number>;
+
+/**
+ * Query permission options gated by workspace trust. Headless children
+ * cannot answer interactive approval prompts, so a trusted cwd (the caller
+ * already vetted the directory — see `resolveStandaloneChildProjectTrust`)
+ * gets the SDK's autonomous `bypassPermissions` mode. An untrusted cwd
+ * instead gets `dontAsk`, the SDK's headless-safe restricted mode: it denies
+ * any tool call that is not already pre-approved rather than bypassing
+ * checks or hanging on a prompt no one can answer. `permissionMode` is the
+ * actual access boundary; `settingSources` only controls which config files
+ * load (stopping an untrusted project's own settings from reconfiguring the
+ * child) and must never substitute for the permission mode.
+ */
+export function claudePermissionOptions(
+  trusted: boolean,
+): Pick<
+  Options,
+  "permissionMode" | "allowDangerouslySkipPermissions" | "settingSources"
+> {
+  return trusted
+    ? {
+        permissionMode: "bypassPermissions",
+        allowDangerouslySkipPermissions: true,
+      }
+    : { permissionMode: "dontAsk", settingSources: ["user"] };
+}
 
 function boundedError(error: unknown) {
   return (error instanceof Error ? error.message : String(error)).slice(
@@ -327,19 +354,10 @@ const makeClaudeSession = (
           prompt: input,
           options: {
             cwd: task.cwd,
-            // Headless children cannot answer approval prompts. The caller
-            // already chose to launch an autonomous subagent, so let it use
-            // its tools without interactive permission checks.
-            permissionMode: "bypassPermissions",
-            allowDangerouslySkipPermissions: true,
+            ...claudePermissionOptions(task.parent.projectTrusted),
             // Keep child orchestration inside this extension's global manager
             // and concurrency cap rather than Claude Code's native subagents.
             disallowedTools: ["Agent", "Task"],
-            // For cwds pi marked untrusted, restrict to user-level settings so
-            // an untrusted project's config cannot reconfigure the child.
-            ...(task.parent.projectTrusted
-              ? {}
-              : { settingSources: ["user" as const] }),
             includePartialMessages: true,
             abortController,
             ...(claudeBinary
