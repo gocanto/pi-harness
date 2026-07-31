@@ -11,7 +11,9 @@
  */
 
 import type {
+  CreateAgentSessionOptions,
   DefaultResourceLoader,
+  SessionShutdownEvent,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -98,6 +100,8 @@ export interface RunAgentOptions {
   toolCallTimeoutMs?: number;
   /** Test-only override for the first assistant response-event timeout. */
   firstResponseTimeoutMs?: number;
+  /** Test-only override for session creation; defaults to the production Pi SDK. */
+  createSession?: CreateWorkflowAgentSession;
 }
 
 /** Build a fresh extension runtime for each concurrent workflow child. */
@@ -120,6 +124,39 @@ interface WorkflowToolSession {
   getToolDefinition(name: string): ToolDefinition | undefined;
   subscribe(listener: AgentSessionEventListener): () => void;
 }
+
+/**
+ * The minimal `AgentSession` lifecycle `runAgent()` depends on: creation
+ * output, message/model/context inspection, event subscription, prompting,
+ * abort, and disposal. `Pick`s off `AgentSession`'s public method/property
+ * types instead of naming its private fields, so a plain object literal
+ * satisfies this type structurally and can stand in for a real session in
+ * tests without a cast. `extensionRunner` is narrowed to the concrete
+ * `session_shutdown` shape (mirroring `shared/child-session.ts`'s
+ * `ChildExtensionRunner`) rather than `AgentSession["extensionRunner"]`'s
+ * generic `emit`, which only a real `ExtensionRunner` can implement.
+ */
+export type WorkflowAgentSession = WorkflowToolSession &
+  Pick<
+    AgentSession,
+    | "model"
+    | "messages"
+    | "getContextUsage"
+    | "bindExtensions"
+    | "prompt"
+    | "abort"
+    | "dispose"
+  > & {
+    readonly extensionRunner: {
+      hasHandlers(eventType: string): boolean;
+      emit(event: SessionShutdownEvent): Promise<unknown>;
+    };
+  };
+
+/** Test-only seam for session creation; the production default is `createAgentSession`. */
+export type CreateWorkflowAgentSession = (
+  options: CreateAgentSessionOptions,
+) => Promise<{ session: WorkflowAgentSession }>;
 
 /** Guard current tools and tools registered by extensions at later agent starts. */
 export function guardWorkflowChildTools(
@@ -433,8 +470,9 @@ export async function runAgent(
 ): Promise<AgentOutcome> {
   let structured: unknown;
   let customTools: ToolDefinition[] | undefined;
-  let session: AgentSession | undefined;
+  let session: WorkflowAgentSession | undefined;
   let unsubscribeToolTimeout: (() => void) | undefined;
+  const createSession = options.createSession ?? createAgentSession;
   try {
     customTools =
       options.schema !== undefined
@@ -444,7 +482,7 @@ export async function runAgent(
             }),
           ]
         : undefined;
-    ({ session } = await createAgentSession({
+    ({ session } = await createSession({
       cwd: options.cwd,
       ...(options.model ? { model: options.model } : {}),
       ...(options.thinkingLevel
