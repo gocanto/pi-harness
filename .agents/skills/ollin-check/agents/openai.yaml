@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ollin Check"
+  short_description: "Route Improve plans through reviewed PRs"
+  default_prompt: "Use $ollin-check to execute Improve plans with optional exact-model routing or read-only partial CLI advisors in isolated worktrees and drive their stacked PRs through CI, completion checks, code-quality checks, and automated review."
