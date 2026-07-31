@@ -338,6 +338,12 @@ Confirmed in `extensions/shared/child-session.ts`,
 | claude | `true` | `true` | `true` | resolves the `claude` CLI on `PATH` (`resolveClaudeBinary`) |
 | codex | `false` | `true` | `true` | resolves the `codex` binary on `PATH` |
 
+For the full cross-harness matrix (cancellation semantics, persistence, output
+budgets, security implications, cost/latency, and a bounded implementation
+backlog — Plan 018), see `docs/capability-matrix.md`. This table stays as the
+quick at-a-glance summary; that document is the authoritative, evidence-cited
+version.
+
 Model defaults when `model` is omitted: pi resolves against the parent's
 `ModelRegistry` and inherits the parent's model/thinking level (`resolvePiModel`);
 Claude and Codex simply omit the `model` option from the SDK/CLI call and let that
