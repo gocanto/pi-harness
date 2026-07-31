@@ -1,0 +1,24 @@
+{
+  "dependencies": {
+    "@earendil-works/pi-ai": "^0.82.0",
+    "@earendil-works/pi-coding-agent": "^0.82.0",
+    "@earendil-works/pi-tui": "^0.82.0",
+    "acorn": "^8.17.0",
+    "typebox": "^1.3.6"
+  },
+  "devDependencies": {
+    "@effect/tsgo": "^0.24.2",
+    "@types/node": "^26.1.1",
+    "prettier": "^3.9.5",
+    "typescript": "^7.0.2"
+  },
+  "type": "module",
+  "scripts": {
+    "prepare": "effect-tsgo patch",
+    "check": "tsc --noEmit",
+    "format": "prettier --write \"extensions/**/*.{ts,cjs}\" \"*.json\"",
+    "format:check": "prettier --check \"extensions/**/*.{ts,cjs}\" \"*.json\"",
+    "test": "node --test --experimental-strip-types $(find extensions -name '*.test.ts' ! -path 'extensions/subagents/claude.test.ts' ! -path 'extensions/subagents/codex.test.ts' | sort) && pnpm --filter file-search test",
+    "test:live": "pnpm --filter subagents run test:live"
+  }
+}

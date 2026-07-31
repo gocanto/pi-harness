@@ -1,0 +1,4 @@
+interface:
+  display_name: "TypeScript Coding Standards"
+  short_description: "Project TypeScript design standards"
+  default_prompt: "Use $typescript-coding-standards when designing or changing TypeScript code."

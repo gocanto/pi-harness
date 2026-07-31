@@ -1,0 +1,4 @@
+interface:
+  display_name: "Go Coding Standards"
+  short_description: "Project Go design standards"
+  default_prompt: "Use $go-coding-standards when designing or changing Go code."
