@@ -174,7 +174,11 @@ export default function (pi: ExtensionAPI) {
   };
 
   const flushResults = () => {
-    for (const snap of resultDelivery.drain()) deliverResult(snap);
+    // A result is only removed from the deferred queue once deliverResult
+    // succeeds, so a delivery failure (e.g. a transient session/runtime
+    // state) leaves it queued for the next agent_settled/idle flush instead
+    // of discarding the completed subagent's result.
+    resultDelivery.flush(deliverResult);
   };
 
   const deliverBtwResult = (snap: SubagentSnapshot) => {
