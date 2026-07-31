@@ -18,6 +18,7 @@
     "check": "tsc --noEmit",
     "format": "prettier --write \"extensions/**/*.{ts,cjs}\" \"*.json\"",
     "format:check": "prettier --check \"extensions/**/*.{ts,cjs}\" \"*.json\"",
-    "test": "node --test --experimental-strip-types extensions/*/*.test.ts && pnpm --filter file-search test"
+    "test": "node --test --experimental-strip-types $(find extensions -name '*.test.ts' ! -path 'extensions/subagents/claude.test.ts' ! -path 'extensions/subagents/codex.test.ts' | sort) && pnpm --filter file-search test",
+    "test:live": "pnpm --filter subagents run test:live"
   }
 }
