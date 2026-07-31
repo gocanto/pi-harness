@@ -9,6 +9,8 @@ import { ChildProcess } from "effect/unstable/process";
 import type { CapturedOutput } from "./output.ts";
 
 const STDERR_MAX_BYTES = 64 * 1024;
+/** Owner-only permissions for the spilled full-output file (it may hold secrets). */
+const PRIVATE_FILE_MODE = 0o600;
 
 interface PreviewState {
   readonly decoder: TextDecoder;
@@ -109,7 +111,7 @@ export function executeSearchProcess(options: {
             Stream.tap((chunk) =>
               Effect.sync(() => observeStdout(preview, chunk)),
             ),
-            Stream.run(fs.sink(fullOutputPath)),
+            Stream.run(fs.sink(fullOutputPath, { mode: PRIVATE_FILE_MODE })),
           ),
           stderr: collectStderr(process.stderr),
         },

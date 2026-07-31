@@ -45,6 +45,7 @@ import {
   type TranscriptEntry,
   type WorkflowDetails,
 } from "./model.ts";
+import { writeFileAtomic } from "./serialization.ts";
 
 const NOTICE_TTL_MS = 4000;
 const MIN_HEIGHT = 10;
@@ -482,7 +483,7 @@ export class WorkflowDashboard {
     if (!entry) return;
     const target = path.join(runsDir(), entry.runId, "report.md");
     try {
-      fs.writeFileSync(target, buildReport(entry.details), "utf8");
+      writeFileAtomic(target, buildReport(entry.details));
       this.notice = `saved ${shortenHome(target)}`;
     } catch (error) {
       this.notice = `save failed: ${error instanceof Error ? error.message : String(error)}`;

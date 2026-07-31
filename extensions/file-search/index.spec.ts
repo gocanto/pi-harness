@@ -1,5 +1,7 @@
 import { NodeServices } from "@effect/platform-node";
 import { assert, it } from "@effect/vitest";
+import { existsSync, statSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { Effect, FileSystem } from "effect";
@@ -23,7 +25,7 @@ import {
   type ResolvedBinary,
 } from "./src/binaries.ts";
 import { formatCapturedOutput, formatOutput } from "./src/output.ts";
-import { executeSearchProcess } from "./src/process.ts";
+import { discardCapturedOutput, executeSearchProcess } from "./src/process.ts";
 import { installNotifications, makeBinaryInitializers } from "./index.ts";
 
 // --- argument construction -------------------------------------------------
@@ -400,10 +402,43 @@ it.effect("process output is streamed to a complete spill file", () =>
     const fs = yield* FileSystem.FileSystem;
     const fullOutput = yield* fs.readFileString(formatted.fullOutputPath);
     assert.equal(fullOutput, "line\n".repeat(3000));
+    if (process.platform !== "win32") {
+      assert.equal(statSync(formatted.fullOutputPath).mode & 0o777, 0o600);
+      assert.equal(
+        statSync(dirname(formatted.fullOutputPath)).mode & 0o777,
+        0o700,
+      );
+    }
     yield* fs.remove(dirname(formatted.fullOutputPath), {
       recursive: true,
       force: true,
     });
+  }).pipe(Effect.provide(NodeServices.layer)),
+);
+
+it.effect("a failed search does not retain its spilled output directory", () =>
+  Effect.gen(function* () {
+    const result = yield* executeSearchProcess({
+      command: process.execPath,
+      args: [
+        "-e",
+        'process.stdout.write("line\\n".repeat(3000)); process.exit(1)',
+      ],
+      cwd: process.cwd(),
+      tempPrefix: "pi-search-test-",
+    });
+    const formatted = formatCapturedOutput(result.output);
+    assert.equal(result.code, 1);
+    assert.isTrue(formatted.truncated);
+    assert.isDefined(formatted.fullOutputPath);
+    const directory = dirname(result.output.fullOutputPath ?? "");
+
+    // Mirrors index.ts's non-zero-exit path: discard on failure.
+    yield* discardCapturedOutput(result.output);
+    assert.isFalse(existsSync(directory));
+
+    // Discarding twice (e.g. a retried cleanup) must not throw.
+    yield* discardCapturedOutput(result.output);
   }).pipe(Effect.provide(NodeServices.layer)),
 );
 
@@ -436,8 +471,26 @@ it("output: oversized results are truncated and persisted", async () => {
   assert.match(formatted.text, /\[Output truncated: 2000 of 3000 lines/);
   assert.match(
     formatted.text,
-    /Full output saved to: \/tmp\/fake\/output\.txt\]/,
+    /Full output saved to: \/tmp\/fake\/output\.txt — temporary, private to this user, and removed when this session ends\]/,
   );
   const shownLines = formatted.text.split("\n");
   assert.equal(shownLines[0], "file-0.ts");
+});
+
+it("output: persisted spill files are private to the owner", async () => {
+  const bigOutput = Array.from({ length: 3000 }, (_, i) => `file-${i}.ts`).join(
+    "\n",
+  );
+  const formatted = await formatOutput(bigOutput, { tempPrefix: "pi-fd-" });
+  assert.isDefined(formatted.fullOutputPath);
+  const fullOutputPath = formatted.fullOutputPath;
+  if (!fullOutputPath) throw new Error("expected a persisted output path");
+  try {
+    if (process.platform !== "win32") {
+      assert.equal(statSync(fullOutputPath).mode & 0o777, 0o600);
+      assert.equal(statSync(dirname(fullOutputPath)).mode & 0o777, 0o700);
+    }
+  } finally {
+    await rm(dirname(fullOutputPath), { recursive: true, force: true });
+  }
 });
