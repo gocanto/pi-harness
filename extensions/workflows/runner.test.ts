@@ -340,6 +340,8 @@ interface FakeSessionControl {
   /** Custom tools passed into session creation (e.g. structured_output). */
   readonly customTools: ToolDefinition[] | undefined;
   appendMessage(message: SessionMessage): void;
+  /** Replace the whole message history in place (simulates compaction/branch replacement). */
+  replaceMessages(messages: SessionMessage[]): void;
   emit(event: AgentSessionEvent): void;
   getToolDefinition(name: string): ToolDefinition | undefined;
   /** Resolves once runAgent calls session.abort() in response to its signal. */
@@ -384,6 +386,15 @@ function createFakeSessionHandle(spec: FakeSessionSpec): FakeSessionHandle {
       customTools: creationOptions.customTools,
       appendMessage(message) {
         messages.push(message);
+      },
+      replaceMessages(next) {
+        // Mutate the same array's contents rather than reassigning the
+        // binding: `session.messages` below is a plain data property
+        // capturing this array by reference at session-creation time, so an
+        // in-place clear + refill is what real compaction's wholesale
+        // history replacement looks like from a reader's point of view.
+        messages.length = 0;
+        messages.push(...next);
       },
       emit(event) {
         for (const listener of listeners) listener(event);
@@ -833,6 +844,263 @@ test("runAgent disposes a session that fails to bind extensions during setup", a
     assert.match(
       outcome.error ?? "",
       /Failed to create agent session: extension bind exploded/,
+    );
+    assert.equal(handle.disposeCount(), 1);
+  });
+});
+
+// -- incremental progress characterization ----------------------------------
+//
+// runAgent() folds newly observed session events into progress incrementally
+// instead of rescanning the whole message history on every tick (see
+// `IncrementalProgressTracker` in runner.ts). These tests drive a long,
+// branching conversation - parallel tool calls, a mid-run compaction that
+// replaces the whole history, and more turns afterward - and assert every
+// progress snapshot against an independent oracle built the same way the
+// pre-existing full-rescan `transcriptFromMessages()` would see it, so a
+// divergence between the incremental and full-rescan views fails loudly.
+
+interface OracleUsage {
+  turns: number;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  cost: number;
+}
+
+function emptyOracleUsage(): OracleUsage {
+  return {
+    turns: 0,
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    cost: 0,
+  };
+}
+
+test("progress snapshots stay correct across a long history, parallel tool calls, and mid-run compaction", async () => {
+  await withRunAgentEnv(async (env) => {
+    const progressUpdates: AgentProgress[] = [];
+
+    // Independent oracle state, folded by this test (not by runner.ts) from
+    // the exact same messages/events fed to the fake session.
+    const oracleTimings = new Map<string, ToolExecutionTiming>();
+    let oracleMessages: SessionMessage[] = [];
+    let oracleUsage = emptyOracleUsage();
+    let oraclePreview = "";
+
+    const foldAssistant = (message: SessionMessage) => {
+      if (message.role !== "assistant") return;
+      oracleUsage.turns++;
+      const u = message.usage;
+      if (u) {
+        oracleUsage.input += u.input || 0;
+        oracleUsage.output += u.output || 0;
+        oracleUsage.cacheRead += u.cacheRead || 0;
+        oracleUsage.cacheWrite += u.cacheWrite || 0;
+        oracleUsage.cost += u.cost?.total || 0;
+      }
+      const text = message.content
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n")
+        .trim();
+      if (text) oraclePreview = text;
+    };
+
+    const expectLatestSnapshotMatchesOracle = () => {
+      const latest = progressUpdates.at(-1);
+      assert.ok(latest, "expected a progress update to have been emitted");
+      assert.deepEqual(
+        {
+          turns: latest.usage.turns,
+          input: latest.usage.input,
+          output: latest.usage.output,
+          cacheRead: latest.usage.cacheRead,
+          cacheWrite: latest.usage.cacheWrite,
+          cost: latest.usage.cost,
+        },
+        oracleUsage,
+      );
+      assert.equal(latest.preview, oraclePreview);
+      assert.deepEqual(
+        latest.transcript,
+        transcriptFromMessages(oracleMessages, oracleTimings),
+      );
+    };
+
+    const handle = createFakeSessionHandle({
+      model: fixtureModel(),
+      respond: async (control) => {
+        // Turn 1: an assistant message with two parallel tool calls, whose
+        // executions start together but settle out of order.
+        const turn1 = {
+          role: "assistant" as const,
+          content: [
+            {
+              type: "toolCall" as const,
+              id: "call-a",
+              name: "first",
+              arguments: { n: 1 },
+            },
+            {
+              type: "toolCall" as const,
+              id: "call-b",
+              name: "second",
+              arguments: { n: 2 },
+            },
+          ],
+          api: "fixture-api",
+          provider: "fixture-provider",
+          model: "fixture-model",
+          usage: zeroUsage,
+          stopReason: "toolUse" as const,
+          timestamp: 1_000,
+        };
+        control.appendMessage(turn1);
+        oracleMessages.push(turn1);
+        foldAssistant(turn1);
+        control.emit({ type: "message_end", message: turn1 });
+        expectLatestSnapshotMatchesOracle();
+
+        for (const [toolCallId, toolName, args] of [
+          ["call-a", "first", { n: 1 }],
+          ["call-b", "second", { n: 2 }],
+        ] as const) {
+          const event: AgentSessionEvent = {
+            type: "tool_execution_start",
+            toolCallId,
+            toolName,
+            args,
+          };
+          control.emit(event);
+          recordToolExecutionTiming(oracleTimings, event);
+          expectLatestSnapshotMatchesOracle();
+        }
+
+        // call-b finishes first even though call-a started first.
+        for (const [toolCallId, toolName, text] of [
+          ["call-b", "second", "second result"],
+          ["call-a", "first", "first result"],
+        ] as const) {
+          const endEvent: AgentSessionEvent = {
+            type: "tool_execution_end",
+            toolCallId,
+            toolName,
+            result: { content: [{ type: "text", text }] },
+            isError: false,
+          };
+          control.emit(endEvent);
+          recordToolExecutionTiming(oracleTimings, endEvent);
+          expectLatestSnapshotMatchesOracle();
+
+          const result: SessionMessage = {
+            role: "toolResult",
+            toolCallId,
+            toolName,
+            content: [{ type: "text", text }],
+            isError: false,
+            timestamp: 1_010,
+          };
+          control.appendMessage(result);
+          oracleMessages.push(result);
+          control.emit({ type: "message_end", message: result });
+          expectLatestSnapshotMatchesOracle();
+        }
+
+        // Turn 2: a plain text reply.
+        const turn2 = assistantTextMessage("Turn two output.", {
+          timestamp: 1_020,
+        });
+        control.appendMessage(turn2);
+        oracleMessages.push(turn2);
+        foldAssistant(turn2);
+        control.emit({ type: "message_end", message: turn2 });
+        expectLatestSnapshotMatchesOracle();
+
+        // Compaction replaces the whole history with a summary + the
+        // surviving tail. Usage/preview reset and refold strictly over what
+        // remains visible, matching full-rescan semantics.
+        const summary: SessionMessage = {
+          role: "user",
+          content: "[compaction summary omitted]",
+          timestamp: 1_025,
+        };
+        const compacted: SessionMessage[] = [summary, turn2];
+        control.replaceMessages(compacted);
+        control.emit({
+          type: "compaction_end",
+          reason: "threshold",
+          result: undefined,
+          aborted: false,
+          willRetry: false,
+        });
+        oracleMessages = [...compacted];
+        oracleUsage = emptyOracleUsage();
+        oraclePreview = "";
+        for (const message of compacted) foldAssistant(message);
+        expectLatestSnapshotMatchesOracle();
+
+        // Turn 3: further replies after compaction must still track
+        // incrementally against the new (post-compaction) baseline.
+        const turn3 = assistantTextMessage("Turn three output.", {
+          timestamp: 1_030,
+        });
+        control.appendMessage(turn3);
+        oracleMessages.push(turn3);
+        foldAssistant(turn3);
+        control.emit({ type: "message_end", message: turn3 });
+        expectLatestSnapshotMatchesOracle();
+
+        // A long tail of further turns must still match once the raw
+        // transcript history grows well past the transcript entry cap.
+        for (let i = 0; i < 210; i++) {
+          const filler = assistantTextMessage(`Filler turn ${i}.`, {
+            timestamp: 1_100 + i,
+          });
+          control.appendMessage(filler);
+          oracleMessages.push(filler);
+          foldAssistant(filler);
+          control.emit({ type: "message_end", message: filler });
+          if (i % 47 === 0 || i === 209) expectLatestSnapshotMatchesOracle();
+        }
+
+        const final = assistantTextMessage("Final turn output.", {
+          timestamp: 2_000,
+        });
+        control.appendMessage(final);
+        oracleMessages.push(final);
+        foldAssistant(final);
+        control.emit({ type: "message_end", message: final });
+        expectLatestSnapshotMatchesOracle();
+      },
+    });
+
+    const outcome = await runAgent({
+      prompt: "drive a long, branching conversation",
+      cwd: env.cwd,
+      loader: env.loader,
+      settingsManager: env.settingsManager,
+      modelRegistry: env.modelRegistry,
+      createSession: handle.createSession,
+      onProgress: (progress) => progressUpdates.push(progress),
+    });
+
+    assert.equal(outcome.ok, true);
+    assert.equal(outcome.output, "Final turn output.");
+    // The final authoritative result is one full rescan over whatever
+    // `session.messages` holds at teardown - the same oracle-tracked array.
+    assert.deepEqual(outcome.usage, {
+      ...oracleUsage,
+      ...(outcome.usage.contextTokens === undefined
+        ? {}
+        : { contextTokens: outcome.usage.contextTokens }),
+    });
+    assert.deepEqual(
+      outcome.transcript,
+      transcriptFromMessages(oracleMessages, oracleTimings),
     );
     assert.equal(handle.disposeCount(), 1);
   });
