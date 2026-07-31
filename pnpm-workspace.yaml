@@ -1,0 +1,12 @@
+packages:
+  - 'extensions/*'
+
+allowBuilds:
+  '@google/genai': true
+  msgpackr-extract: true
+  protobufjs: true
+
+onlyBuiltDependencies:
+  - '@google/genai'
+  - 'msgpackr-extract'
+  - 'protobufjs'

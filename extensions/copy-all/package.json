@@ -1,0 +1,12 @@
+{
+  "name": "copy-all",
+  "scripts": {
+    "check": "tsc --noEmit -p ."
+  },
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@effect/tsgo": "^0.24.2",
+    "typescript": "^7.0.2"
+  }
+}
