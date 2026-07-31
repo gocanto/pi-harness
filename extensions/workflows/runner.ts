@@ -10,12 +10,14 @@
  * errors, aborts, missing structured output) settles into an `AgentOutcome`.
  */
 
+import type {
+  DefaultResourceLoader,
+  SettingsManager,
+} from "@earendil-works/pi-coding-agent";
 import {
   createAgentSession,
-  DefaultResourceLoader,
   defineTool,
   SessionManager,
-  SettingsManager,
   type AgentSession,
   type AgentSessionEvent,
   type AgentSessionEventListener,
