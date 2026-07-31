@@ -10,7 +10,12 @@ import { Effect } from "effect";
 import { runCommand } from "./process.ts";
 
 const DIFF_SCROLL_STEP = 5;
-const MAX_DIFF_LINES = 20_000;
+/** Exported so tests can assert the documented truncation bound. */
+export const MAX_DIFF_LINES = 20_000;
+const COMMAND_TIMEOUT_MS = 10_000;
+// Cheap per-file `numstat` calls run concurrently, bounded so a working tree
+// with hundreds of changed files does not spawn unbounded git processes.
+const STATS_CONCURRENCY = 8;
 // Strip terminal control sequences from repository-controlled paths and diff
 // text before applying trusted theme styling.
 // eslint-disable-next-line no-control-regex
@@ -37,10 +42,27 @@ interface ChangedPath {
 export interface ChangedFile {
   additions: number | null;
   deletions: number | null;
-  diff: string[];
   name: string;
   path: string;
+  /**
+   * Original (unsanitized) repository-relative path, used only to build git
+   * command arguments for lazy diff loading. Never render this field
+   * directly; use `path`/`name` instead.
+   */
+  rawPath: string;
+  /** Porcelain XY status code, used to choose the diff strategy on demand. */
+  status: string;
 }
+
+export interface ChangedFilesResult {
+  files: ChangedFile[];
+  hasHead: boolean;
+  repoRoot: string;
+}
+
+export type DiffLoadResult =
+  | { _tag: "loaded"; lines: string[] }
+  | { _tag: "unavailable"; message: string };
 
 function parseChangedPaths(output: string) {
   const records = output.split("\0");
@@ -77,15 +99,22 @@ function cleanDisplayPath(path: string) {
 }
 
 const run = (cwd: string, args: string[]) =>
-  runCommand("git", args, cwd, 10_000);
+  runCommand("git", args, cwd, COMMAND_TIMEOUT_MS);
 
-const loadFile = Effect.fn("git-info.loadFile")(function* (
-  repoRoot: string,
-  changedPath: ChangedPath,
-  hasHead: boolean,
-) {
-  const useNoIndex = changedPath.status === "??" || !hasHead;
-  const diffArguments = useNoIndex
+// Untracked paths and repositories with no HEAD commit yet have nothing to
+// diff against, so they compare the working tree file to `/dev/null`.
+function usesNoIndexDiff(status: string, hasHead: boolean) {
+  return status === "??" || !hasHead;
+}
+
+function statArguments(path: string, status: string, hasHead: boolean) {
+  return usesNoIndexDiff(status, hasHead)
+    ? ["diff", "--no-index", "--numstat", "--", "/dev/null", path]
+    : ["diff", "--numstat", "HEAD", "--", path];
+}
+
+function diffArguments(path: string, status: string, hasHead: boolean) {
+  return usesNoIndexDiff(status, hasHead)
     ? [
         "diff",
         "--no-index",
@@ -94,7 +123,7 @@ const loadFile = Effect.fn("git-info.loadFile")(function* (
         "--unified=3",
         "--",
         "/dev/null",
-        changedPath.path,
+        path,
       ]
     : [
         "diff",
@@ -103,16 +132,53 @@ const loadFile = Effect.fn("git-info.loadFile")(function* (
         "--unified=3",
         "HEAD",
         "--",
-        changedPath.path,
+        path,
       ];
-  const statArguments = useNoIndex
-    ? ["diff", "--no-index", "--numstat", "--", "/dev/null", changedPath.path]
-    : ["diff", "--numstat", "HEAD", "--", changedPath.path];
-  const [diffResult, statResult] = yield* Effect.all(
-    [run(repoRoot, diffArguments), run(repoRoot, statArguments)],
-    { concurrency: "unbounded" },
+}
+
+// Loads only the cheap `numstat` summary for a changed path. The full
+// textual diff (which can retain up to MAX_DIFF_LINES lines) is loaded
+// lazily via `loadFileDiff` once a file is actually selected.
+const loadFileStats = Effect.fn("git-info.loadFileStats")(function* (
+  repoRoot: string,
+  changedPath: ChangedPath,
+  hasHead: boolean,
+) {
+  const statResult = yield* run(
+    repoRoot,
+    statArguments(changedPath.path, changedPath.status, hasHead),
   );
   const stats = parseNumstat(statResult.stdout);
+
+  return {
+    ...stats,
+    name: cleanDisplayPath(basename(changedPath.path)),
+    path: cleanDisplayPath(changedPath.path),
+    rawPath: changedPath.path,
+    status: changedPath.status,
+  } satisfies ChangedFile;
+});
+
+/** Loads the full textual diff for a single changed file, on demand. */
+export const loadFileDiff = Effect.fn("git-info.loadFileDiff")(function* (
+  repoRoot: string,
+  file: Pick<ChangedFile, "rawPath" | "status">,
+  hasHead: boolean,
+) {
+  const diffResult = yield* run(
+    repoRoot,
+    diffArguments(file.rawPath, file.status, hasHead),
+  );
+  if (diffResult.code !== 0) {
+    const reason =
+      sanitizeTerminalText(diffResult.stderr).trim() ||
+      `git exited with code ${diffResult.code}`;
+    return {
+      _tag: "unavailable",
+      message: `Diff unavailable: ${reason}`,
+    } satisfies DiffLoadResult;
+  }
+
   const allDiffLines = diffResult.stdout
     .trimEnd()
     .split("\n")
@@ -126,16 +192,17 @@ const loadFile = Effect.fn("git-info.loadFile")(function* (
       : allDiffLines;
 
   return {
-    ...stats,
-    diff:
+    _tag: "loaded",
+    lines:
       diff.length === 1 && diff[0] === ""
         ? ["No textual diff available."]
         : diff,
-    name: cleanDisplayPath(basename(changedPath.path)),
-    path: cleanDisplayPath(changedPath.path),
-  } satisfies ChangedFile;
+  } satisfies DiffLoadResult;
 });
 
+// Returns changed paths and cheap per-file stats in a bounded first pass.
+// No full diff text is loaded here; callers load a file's diff lazily via
+// `loadFileDiff` once it is selected.
 export const loadChangedFiles = Effect.fn("git-info.loadChangedFiles")(
   function* (cwd: string) {
     const rootResult = yield* run(cwd, ["rev-parse", "--show-toplevel"]);
@@ -157,12 +224,15 @@ export const loadChangedFiles = Effect.fn("git-info.loadChangedFiles")(
     if (statusResult.code !== 0) return null;
 
     const changedPaths = parseChangedPaths(statusResult.stdout);
-    const files: ChangedFile[] = [];
-    for (const changedPath of changedPaths) {
-      files.push(yield* loadFile(repoRoot, changedPath, headResult.code === 0));
-    }
+    const hasHead = headResult.code === 0;
+    const files = yield* Effect.all(
+      changedPaths.map((changedPath) =>
+        loadFileStats(repoRoot, changedPath, hasHead),
+      ),
+      { concurrency: STATS_CONCURRENCY },
+    );
 
-    return files;
+    return { files, hasHead, repoRoot } satisfies ChangedFilesResult;
   },
 );
 
@@ -171,11 +241,21 @@ function padToWidth(text: string, width: number) {
   return `${truncated}${" ".repeat(Math.max(0, width - visibleWidth(truncated)))}`;
 }
 
+/** Loads a single file's diff, given an abort signal for cancellation. */
+export type LoadFileDiff = (
+  file: ChangedFile,
+  signal: AbortSignal,
+) => Promise<DiffLoadResult>;
+
+const LOADING_DIFF_PLACEHOLDER = ["Loading diff…"];
+
 export async function showChangedFiles(
   ctx: ExtensionContext,
-  files: ChangedFile[],
+  result: ChangedFilesResult,
+  loadFileDiffLazily: LoadFileDiff,
 ) {
   if (ctx.mode !== "tui") return;
+  const { files } = result;
 
   await ctx.ui.custom<void>(
     (tui, theme, _keybindings, done) => {
@@ -183,9 +263,61 @@ export async function showChangedFiles(
       let selectedIndex = 0;
       let sidebarOffset = 0;
       let diffOffset = 0;
+      let disposed = false;
+      // Diffs are loaded lazily, at most one in-flight fetch per file, and
+      // cached by raw path so revisiting a file does not re-run git.
+      const diffCache = new Map<string, string[]>();
+      const pendingDiffLoads = new Map<string, AbortController>();
 
       function bodyHeight() {
         return Math.max(8, Math.floor(tui.terminal.rows * 0.8) - 2);
+      }
+
+      function currentDiffLines(file: ChangedFile) {
+        return diffCache.get(file.rawPath) ?? LOADING_DIFF_PLACEHOLDER;
+      }
+
+      function ensureDiffLoaded(file: ChangedFile) {
+        if (diffCache.has(file.rawPath) || pendingDiffLoads.has(file.rawPath)) {
+          return;
+        }
+
+        // Only one file's diff is visible at a time, so cancel any other
+        // in-flight load: at most one diff-loading git process runs
+        // concurrently. Delete synchronously so a quick re-selection of the
+        // cancelled file starts a fresh fetch instead of appearing "pending".
+        for (const [rawPath, controller] of pendingDiffLoads) {
+          if (rawPath === file.rawPath) continue;
+          controller.abort();
+          pendingDiffLoads.delete(rawPath);
+        }
+
+        const controller = new AbortController();
+        pendingDiffLoads.set(file.rawPath, controller);
+
+        // Ignore results from a fetch that a later selection has since
+        // superseded and removed from `pendingDiffLoads`.
+        const settle = (lines: string[]) => {
+          if (pendingDiffLoads.get(file.rawPath) !== controller) return;
+          pendingDiffLoads.delete(file.rawPath);
+          if (disposed) return;
+          diffCache.set(file.rawPath, lines);
+          tui.requestRender();
+        };
+
+        loadFileDiffLazily(file, controller.signal)
+          .then((diffResult) => {
+            settle(
+              diffResult._tag === "loaded"
+                ? diffResult.lines
+                : [diffResult.message],
+            );
+          })
+          .catch((error: unknown) => {
+            const message =
+              error instanceof Error ? error.message : String(error);
+            settle([`Diff unavailable: ${message}`]);
+          });
       }
 
       function ensureSelectedFileVisible() {
@@ -196,17 +328,22 @@ export async function showChangedFiles(
         }
       }
 
-      function moveFile(amount: number) {
-        selectedIndex = (selectedIndex + amount + files.length) % files.length;
+      function selectFile(newIndex: number) {
+        selectedIndex = newIndex;
         diffOffset = 0;
         ensureSelectedFileVisible();
+        ensureDiffLoaded(files[selectedIndex]!);
         tui.requestRender();
+      }
+
+      function moveFile(amount: number) {
+        selectFile((selectedIndex + amount + files.length) % files.length);
       }
 
       function moveDiff(amount: number) {
         const maxOffset = Math.max(
           0,
-          files[selectedIndex]!.diff.length - bodyHeight(),
+          currentDiffLines(files[selectedIndex]!).length - bodyHeight(),
         );
         diffOffset = Math.max(0, Math.min(maxOffset, diffOffset + amount));
         tui.requestRender();
@@ -260,17 +397,11 @@ export async function showChangedFiles(
             return;
           }
           if (matchesKey(data, Key.home) || data === "g") {
-            selectedIndex = 0;
-            diffOffset = 0;
-            ensureSelectedFileVisible();
-            tui.requestRender();
+            selectFile(0);
             return;
           }
           if (matchesKey(data, Key.end) || data === "G") {
-            selectedIndex = files.length - 1;
-            diffOffset = 0;
-            ensureSelectedFileVisible();
-            tui.requestRender();
+            selectFile(files.length - 1);
             return;
           }
           if (
@@ -318,7 +449,7 @@ export async function showChangedFiles(
         if (matchesKey(data, Key.end) || data === "G") {
           diffOffset = Math.max(
             0,
-            files[selectedIndex]!.diff.length - bodyHeight(),
+            currentDiffLines(files[selectedIndex]!).length - bodyHeight(),
           );
           tui.requestRender();
         }
@@ -382,7 +513,7 @@ export async function showChangedFiles(
             sidebar = " ".repeat(sidebarWidth);
           }
 
-          const diffLine = selectedFile.diff[diffOffset + row];
+          const diffLine = currentDiffLines(selectedFile)[diffOffset + row];
           const diff = padToWidth(
             diffLine === undefined ? "" : styleDiffLine(diffLine),
             diffWidth,
@@ -404,7 +535,16 @@ export async function showChangedFiles(
         return lines;
       }
 
+      ensureDiffLoaded(files[selectedIndex]!);
+
       return {
+        dispose() {
+          disposed = true;
+          for (const controller of pendingDiffLoads.values()) {
+            controller.abort();
+          }
+          pendingDiffLoads.clear();
+        },
         handleInput,
         invalidate() {},
         render,

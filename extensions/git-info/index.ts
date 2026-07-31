@@ -10,7 +10,9 @@ import {
 } from "../shared/dashboard-state.ts";
 import {
   loadChangedFiles,
+  loadFileDiff,
   showChangedFiles,
+  type ChangedFile,
 } from "./src/changed-files-view.ts";
 import { PullRequestQueryTracker } from "./src/pull-request-lookup.ts";
 import { runCommand, type CommandRunner } from "./src/process.ts";
@@ -216,20 +218,30 @@ export default function gitInfo(pi: ExtensionAPI) {
         return;
       }
 
-      const files = await runEffect(getRuntime(), loadChangedFiles(ctx.cwd), {
+      const result = await runEffect(getRuntime(), loadChangedFiles(ctx.cwd), {
         signal: ctx.signal,
         interruptMessage: "Loading changed files was cancelled.",
       });
-      if (files === null) {
+      if (result === null) {
         ctx.ui.notify("Not a git repository", "warning");
         return;
       }
-      if (files.length === 0) {
+      if (result.files.length === 0) {
         ctx.ui.notify("Working tree is clean", "info");
         return;
       }
 
-      await showChangedFiles(ctx, files);
+      const loadDiff = (file: ChangedFile, signal: AbortSignal) =>
+        runEffect(
+          getRuntime(),
+          loadFileDiff(result.repoRoot, file, result.hasHead),
+          {
+            signal,
+            interruptMessage: "Diff loading was cancelled.",
+          },
+        );
+
+      await showChangedFiles(ctx, result, loadDiff);
     },
   });
 
