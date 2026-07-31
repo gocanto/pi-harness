@@ -1,12 +1,25 @@
 # background-terminals — Implementation Guide
 
-> Research phase output. Updated 2026-07-24 against:
-> - `effect@4.0.0-beta.101` (verified installed in this package's `node_modules/effect`; the
->   `unstable/process` module exists there but we deliberately do NOT use it — see §6)
-> - `@earendil-works/pi-coding-agent@^0.82.0` docs at
->   `/Users/davis/.vite-plus/js_runtime/node/24.18.0/lib/node_modules/@earendil-works/pi-coding-agent/docs/`
-> - Reference implementations: `extensions/subagents` (Effect v4 service/manager/read-model/tools)
->   and `extensions/workflows` (dashboard UI, status line, background completion follow-ups).
+> **Status (refreshed 2026-07-31):** this document was originally written as a
+> research-phase implementation guide *before* the extension existed. The extension has
+> since shipped in full — `index.ts` + `src/{domain,manager,output,runtime,prompt,
+> result-delivery}.ts` and `src/ui/{ps,output-view}.ts` — and every numbered section
+> below has been checked against that source. Sections that described a plan later
+> superseded by a different implementation choice are called out inline; everything
+> else in this document accurately describes the shipped code as of this refresh.
+> Package-manager instructions have been corrected throughout: this repository is a
+> pnpm workspace (see `SETUP.md` at the repo root) — there is no package-local
+> `npm install`/`npm run check` step for this extension.
+>
+> Originally written against:
+> - `effect@4.0.0-beta.101` (this package's `package.json` pins `^4.0.0-beta.99`; the
+>   repo-root `pnpm-lock.yaml` currently resolves `4.0.0-beta.102` — see §3). The
+>   `unstable/process` module exists in that release but is deliberately NOT used — see §6.
+> - `@earendil-works/pi-coding-agent@^0.82.0` docs (bundled with the package; see
+>   `node_modules/@earendil-works/pi-coding-agent/docs/` after `pnpm install`).
+> - Reference implementations: `extensions/subagents` (Effect v4 service/manager/tools —
+>   see that package's `docs/design-plan.md` for its current-architecture writeup) and
+>   `extensions/workflows` (dashboard UI, status line, background completion follow-ups).
 >
 > Read alongside `extensions/subagents/docs/effect-v4-notes.md` (API cheat sheet) and
 > `extensions/subagents/docs/effect-v4-extension-guide.md` (toolchain + ManagedRuntime boundary).
@@ -35,7 +48,7 @@ the key simplification vs. subagents' `send()`).
 
 ## 2. Directory / file architecture
 
-Mirror the subagents layout exactly (it is the known-green reference; `npm run check` passes
+Mirror the subagents layout exactly (it is the known-green reference; `pnpm run check` passes
 there against the pinned toolchain):
 
 ```
@@ -57,18 +70,22 @@ extensions/background-terminals/
 │       └── output-view.ts    # stdout/stderr → wrapped display lines
 ├── manager.test.ts           # node:test end-to-end through a real ManagedRuntime
 ├── output.test.ts            # OutputBuffer truncation/decoding unit tests
+├── prompt.test.ts            # tool description + result-message builder assertions
 ├── result-delivery.test.ts   # (copied semantics, tiny)
 └── ps.test.ts                # selection-reconciliation tests (like takeover.test.ts)
 ```
 
 Tests live at the package root, plain `node --test --experimental-strip-types`, exactly like
-`extensions/subagents/package.json`'s `test` script. Note the repo-root `package.json` test
-script (`node --test --experimental-strip-types extensions/*/*.test.ts`) will automatically
-pick these up.
+`extensions/subagents/package.json`'s `test` script. The repo-root `package.json` test script
+(`node --test --experimental-strip-types $(find extensions -name '*.test.ts' ...)`, see
+`SETUP.md`) picks these up automatically via `pnpm test`.
 
-## 3. Toolchain (copy exactly, per effect-v4-extension-guide.md §1)
+## 3. Toolchain
 
-`package.json`:
+> **Shipped `package.json`** (`extensions/background-terminals/package.json` — the sample
+> below in the original guide included a package-local `prepare: effect-tsgo patch` step that
+> was not carried through: the repo-root `package.json` already runs `effect-tsgo patch` once
+> for the whole pnpm workspace, so per-extension packages don't repeat it):
 
 ```jsonc
 {
@@ -77,8 +94,7 @@ pick these up.
   "type": "module",
   "scripts": {
     "check": "tsc --noEmit -p .",
-    "prepare": "effect-tsgo patch",
-    "test": "node --test --experimental-strip-types manager.test.ts output.test.ts result-delivery.test.ts ps.test.ts"
+    "test": "node --test --experimental-strip-types manager.test.ts output.test.ts prompt.test.ts result-delivery.test.ts ps.test.ts"
   },
   "dependencies": {
     "effect": "^4.0.0-beta.99"
@@ -100,10 +116,12 @@ pick these up.
 }
 ```
 
-Per AGENTS.md: add deps with an install command (`npm install effect@^4.0.0-beta.99`),
-run `npm run check` when done, avoid explicit return types unless needed, no `as any`.
-Verification runs from inside `extensions/background-terminals/` only — never root scripts
-(house rule, effect-v4-extension-guide.md §7/§8).
+This repository is a pnpm workspace (`pnpm-workspace.yaml` lists `extensions/*`): add deps by
+editing this `package.json` and running `pnpm install` from the repo root (there is no
+extension-local `npm install`), then run `pnpm run check` (root `tsc --noEmit`) — avoid
+explicit return types unless needed, no `as any`. Prefer the root `pnpm` scripts
+(`pnpm run check`, `pnpm test`, `pnpm run format:check`, `pnpm run verify`) over ad hoc
+per-package invocations, per `SETUP.md`.
 
 Note: we do **not** need `@effect/platform-node`. Subagents' codex backend uses raw
 `node:child_process` `spawn` inside Effect and that is the right model here too (§6).
@@ -526,11 +544,11 @@ parameters: Type.Object({
 ```
 
 Handler: validate cwd (§6), `title.trim().slice(0, 80) || "terminal"`, then
-`runTool(getRuntime(), manager.start({ command, title, cwd }))`. Result text (build in
-prompt.ts, like `buildSubagentSpawnResult`):
+`runTool(getRuntime(), manager.start({ command, title, cwd }))`. Result text is built by
+`buildStartResult` (`src/prompt.ts`):
 
 ```
-Started background terminal bt-3 "dev server" (pid 12345, /Users/davis/project).
+Started background terminal bt-3 "dev server" (pid 12345, /path/to/project).
 It runs in the background with no stdin. You'll get a message when it exits, or use
 bg_status(id: "bt-3") to peek, bg_kill to stop it, bg_list to see all.
 ```
@@ -794,31 +812,41 @@ Consequences:
   scope and awaits bounded spill flushes, then recursively removes its owner-only session
   directory. Paths shown in the old transcript are intentionally session-lifetime pointers.
 - **No persistence / no resurrection.** Unlike workflows (which persists `workflow.json` and
-  marks stale "running" runs as aborted on reload — dashboard.ts lines 286–297), v1 keeps no
-  cross-session record: killed-on-shutdown processes simply disappear. Optionally append a
-  `pi.appendEntry("background-terminals-note", {...})` breadcrumb ("bt-2 'dev server' was
-  killed by session shutdown") so a resumed session's transcript explains the vanished
-  terminal — cheap and worth doing; entries don't enter LLM context (docs: appendEntry).
-  The model-facing story stays consistent because tool results always describe terminals as
-  session-scoped ("killed when the session ends" in `bg_start`'s description).
+  marks stale "running" runs as aborted on reload — dashboard.ts lines 286–297), the shipped
+  extension keeps no cross-session record: killed-on-shutdown processes simply disappear. The
+  optional `pi.appendEntry("background-terminals-note", {...})` breadcrumb suggested here (so a
+  resumed session's transcript explains a vanished terminal) was **not implemented** —
+  `index.ts` has no `appendEntry` call. This remains a legitimate future enhancement, not a
+  historical decision to un-do; anyone picking it up should confirm it's still wanted before
+  adding it. The model-facing story stays consistent regardless, because tool results always
+  describe terminals as session-scoped ("killed when the session ends" in `bg_start`'s
+  description).
 - **Do not spawn from stale contexts.** All spawning goes through tool handlers with a live
   `ctx`; the manager rejects `start` when `disposed` (SpawnError "shutting down", subagents
   manager.ts lines 370–374 precedent).
 - **Fork/clone:** nothing special — same shutdown+start pair; the new instance starts empty.
 
-## 13. Truncation constants (single place, `index.ts` top)
+## 13. Truncation constants
+
+> **Shipped location:** `src/prompt.ts` (not `index.ts`), alongside the result/status
+> message builders that consume them. `RETAINED_PER_STREAM` lives in `src/manager.ts`
+> next to the other manager-tuning constants. Shipped values differ slightly from this
+> plan's draft — verify against `src/prompt.ts` before relying on a number here:
 
 ```ts
-const STATUS_STDOUT_MAX = 16 * 1024;   // bg_status stdout tail
-const STATUS_STDERR_MAX = 8 * 1024;    // bg_status stderr tail
-const RESULT_STDOUT_MAX = 16 * 1024;   // completion follow-up stdout tail
-const RESULT_STDERR_MAX = 8 * 1024;
-const RETAINED_PER_STREAM = 2 * 1024 * 1024;  // in-memory cap per stream (spill keeps the rest)
+// src/prompt.ts
+export const STATUS_STDOUT_MAX = 16 * 1024;   // bg_status stdout tail (400 lines)
+export const STATUS_STDERR_MAX = 8 * 1024;    // bg_status stderr tail (200 lines)
+export const RESULT_STDOUT_MAX = 8 * 1024;    // completion follow-up stdout tail (40 lines)
+export const RESULT_STDERR_MAX = 4 * 1024;    // completion follow-up stderr tail (20 lines)
+
+// src/manager.ts
+export const RETAINED_PER_STREAM = 2 * 1024 * 1024;  // in-memory cap per stream (spill keeps the rest)
 ```
 
 All clamped by `Math.min(..., DEFAULT_MAX_BYTES)` and `DEFAULT_MAX_LINES` (imports from
-`@earendil-works/pi-coding-agent`, verified exported in `dist/index.d.ts`) — same defensive
-clamp as `truncatedOutput` in subagents index.ts. Always `truncateTail` for process output.
+`@earendil-works/pi-coding-agent`) — same defensive clamp as `truncatedOutput` in subagents
+`index.ts`. Always `truncateTail` for process output.
 
 ## 14. Test plan
 
@@ -859,7 +887,8 @@ tricks; they exist on any machine running pi)
 
 **`result-delivery.test.ts`** — consume-before-drain, drain-once (copy subagents' file).
 
-**`ps.test.ts`** — `reconcileTerminalSelection` behavior (copy `takeover.test.ts` cases).
+**`ps.test.ts`** — `reconcileDashboardSelection` behavior (copy `takeover.test.ts` cases; the
+function keeps the subagents name rather than being renamed to `reconcileTerminalSelection`).
 
 **Manual validation (must actually run pi):**
 - `pi` → ask the model to `bg_start` a dev-server-like command → widget appears above editor
@@ -871,8 +900,8 @@ tricks; they exist on any machine running pi)
   as follow-up after the turn, not mid-stream, and only once.
 - `/new` and `/reload` with a running process → process is dead afterwards (`ps aux | grep`),
   no orphan, widget cleared.
-- `npm run check` green; `npm test` green; repo-root `npm run format:check` clean for the new
-  files (prettier covers `extensions/**/*.ts`).
+- `pnpm run check` green; `pnpm test` green; repo-root `pnpm run format:check` clean for the
+  new files (prettier covers `extensions/**/*.ts`).
 
 ## 15. Pitfalls (each burned someone in the reference code)
 
@@ -912,31 +941,49 @@ tricks; they exist on any machine running pi)
     without adding it (resumed sessions replay old tool calls; docs Tool Definition).
 15. **`hasUI`/`mode` guards** — widget + `/ps` must no-op gracefully in print/RPC modes.
 
-## 16. Acceptance checklist
+## 16. Status / maintenance checklist
 
-- [ ] `npm install && npm run check` green in `extensions/background-terminals` (TS7 + Effect LS).
-- [ ] `npm test` green (manager, output, result-delivery, ps selection).
-- [ ] Tools registered: `bg_start`, `bg_status`, `bg_list`, `bg_kill`; descriptions document
-      no-stdin, session-scoped lifetime, and truncation limits; no stdin/steer surface exists.
-- [ ] stdout and stderr captured separately and completely (in-memory tail + spill file);
-      `/ps` detail can inspect both, read-only, scrollable, ANSI-sanitized, live-tailing.
-- [ ] Every model-visible output path truncated (`truncateTail` + clamps) with pointers to the
-      full log.
-- [ ] Exactly-once async completion notification via `sendMessage followUp + triggerTurn`,
-      deferred-delivery map, consumed-set for kill, `agent_settled` flush, `isIdle()` fast
-      path, `disposed` guard. No polling anywhere.
-- [ ] Widget above editor only while ≥1 running, text `N background terminals running • /ps to
-      view`, cleared on last settle and on shutdown.
-- [ ] `/ps` two-stage overlay: list (select/kill/open) → detail (metadata, stdout/stderr
-      toggle, scroll, back), matching subagents/workflows interaction conventions and hint
-      lines from `keybindings.getKeys`.
-- [ ] Kill terminates the whole process tree (SIGTERM → 2s → SIGKILL), records exit
-      code/signal, resolves only after settle.
-- [ ] `session_shutdown` (quit/reload/new/resume/fork) kills all processes within bounded
-      time via `runtime.dispose()`; no orphans; no messages sent during teardown.
-- [ ] Completed entries retained (≤ MAX_TRACKED, pruned oldest-settled) and visible in
-      `bg_list` + `/ps`; running entries never pruned.
-- [ ] Concurrency cap enforced race-free; ids are `bt-N`; cwd resolved against `ctx.cwd` and
-      validated; timestamps and elapsed rendering consistent with subagents.
-- [ ] Code style: model strings in `prompt.ts`, Effect only in the async core, plain TS
-      callbacks for stream plumbing, no `as any`, prettier-clean.
+> Originally an unchecked pre-implementation acceptance list. Re-verified against the shipped
+> source on 2026-07-31 and converted to a completed status checklist — every item below was
+> confirmed true against the referenced file/command at that date. If a future change makes one
+> of these false, uncheck it and fix the regression (or the doc) in the same change, per the
+> maintenance note at the end of this document.
+
+- [x] `pnpm install && pnpm run check` (run from the repo root) is green — this package has no
+      package-local `npm install`/`npm run check` step (§3).
+- [x] `pnpm test` is green — runs `manager.test.ts`, `output.test.ts`, `prompt.test.ts`,
+      `result-delivery.test.ts`, and `ps.test.ts` (44 tests) as part of the repo-wide suite.
+- [x] Tools registered: `bg_start`, `bg_status`, `bg_list`, `bg_kill` (`index.ts`); descriptions
+      in `src/prompt.ts` document the no-stdin contract, session-scoped lifetime, and truncation
+      limits; there is no `bg_wait`/`bg_send` and no stdin/steer surface anywhere in the package.
+- [x] stdout and stderr are captured separately and completely (in-memory tail via
+      `src/output.ts`'s `OutputBuffer` + on-disk spill in `src/manager.ts`); `/ps` detail
+      (`src/ui/ps.ts`, `src/ui/output-view.ts`) inspects both, read-only, scrollable,
+      ANSI-sanitized, live-tailing.
+- [x] Every model-visible output path is truncated (`truncateTail` + the clamps in
+      `src/prompt.ts`, §13) with pointers to the full spill log.
+- [x] Exactly-once async completion notification via `sendMessage({ deliverAs: "followUp",
+      triggerTurn: true })`, the deferred-delivery map (`src/result-delivery.ts`), a
+      consumed-set for `bg_kill`/`bg_status`, an `agent_settled` flush, an `isIdle()` fast path,
+      and a `disposed` guard (`index.ts`). No polling.
+- [x] Widget above the editor only while ≥1 terminal is running, text
+      `N background terminal(s) running • /ps to view` (with correct singular/plural), cleared
+      on the last settle and on `session_shutdown` (`index.ts`).
+- [x] `/ps` two-stage overlay: list (select/kill/open) → detail (metadata, stdout/stderr toggle,
+      scroll, back), matching the subagents/workflows interaction conventions and hint lines
+      from `keybindings.getKeys` (`src/ui/ps.ts`).
+- [x] Kill terminates the whole process tree (SIGTERM → grace → SIGKILL via `killTree`/
+      `terminateChild` in `src/manager.ts`), records exit code/signal, resolves only after
+      settle.
+- [x] `session_shutdown` (quit/reload/new/resume/fork) kills all processes within bounded time
+      via `runtime.dispose()` (`index.ts`); no orphans; no messages sent during teardown
+      (`disposed` guard in `src/manager.ts`).
+- [x] Completed entries are retained (≤ `MAX_TRACKED = 32`, oldest-settled pruned first) and
+      visible in `bg_list` + `/ps`; running entries are never pruned (`src/manager.ts`).
+- [x] Concurrency cap (`MAX_RUNNING = 8`) enforced race-free via a synchronous reservation; ids
+      are `bt-N` (`src/manager.ts`); cwd is resolved against `ctx.cwd` and validated before the
+      manager is touched; timestamps and elapsed rendering are consistent with subagents
+      (`formatElapsed` in `src/domain.ts`).
+- [x] Code style: model-facing strings live in `src/prompt.ts`, Effect is used only in the
+      async core (manager/runtime), plain TS callbacks handle stream plumbing, no `as any`,
+      and `pnpm run format:check` is clean.
