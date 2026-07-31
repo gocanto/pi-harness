@@ -1,11 +1,17 @@
 # Setup
 
-Clone or copy this repository to `~/.pi/agent`, then install its dependencies:
+This repository is a pnpm workspace and requires Node.js >=22.19.0 and pnpm >=11.17.0 (see `engines` and `packageManager` in `package.json`).
+
+Clone or copy this repository to `~/.pi/agent`, then install its dependencies with pnpm:
 
 ```sh
 cd ~/.pi/agent
-npm install
+corepack enable
+corepack use pnpm@11.17.0
+pnpm install
 ```
+
+`corepack enable` and `corepack use` install the pinned pnpm version automatically. If you don't use Corepack, install pnpm 11.17.0 or newer yourself (see the [pnpm installation guide](https://pnpm.io/installation)) and run `pnpm install`.
 
 ## fd and rg tools
 
