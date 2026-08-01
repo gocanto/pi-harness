@@ -12,12 +12,11 @@
  * and issue fire-and-forget kills without touching the Effect runtime.
  */
 
-import { spawn, type ChildProcess } from 'node:child_process';
-import * as fs from 'node:fs';
-import * as os from 'node:os';
-import * as path from 'node:path';
-import { OutputBuffer } from './output.ts';
-import { ProcessTreeController } from './process-tree.ts';
+import { spawn } from 'node:child_process';
+import type * as fs from 'node:fs';
+import { OutputBuffer, OutputSpillManager, RETAINED_PER_STREAM } from './terminal-output/index.ts';
+import { ProcessTreeController } from './process-tree/index.ts';
+import { TerminalEntry, TerminalRegistry, type MutableTerminalSnapshot } from './terminal-manager/index.ts';
 
 import { Context, Deferred, Effect, Exit, FiberSet, Layer, Scope } from 'effect';
 
@@ -27,22 +26,14 @@ export const MAX_RUNNING = 8;
 
 export const MAX_TRACKED = 32;
 
-const MAX_SETTLED_HISTORY = MAX_TRACKED * 4;
 /** In-memory retained cap per stream. */
-export const RETAINED_PER_STREAM = 2 * 1024 * 1024;
-/** Private full-log spills are bounded so a firehose cannot fill the temp disk. */
-export const MAX_SPILL_BYTES_PER_STREAM = 256 * 1024 * 1024;
+export { MAX_SPILL_BYTES_PER_STREAM, RETAINED_PER_STREAM } from './terminal-output/index.ts';
 
 const STOP_TIMEOUT_MS = 5_000;
 /** SIGTERM is normally enough; the second deadline covers a wedged process. */
 /** After termination, how long to wait for the natural close→flush→settle
  * path before force-settling (a grandchild can hold the stdio pipes open). */
 const SETTLE_GRACE_MS = 1_000;
-/** Bound on waiting for spill WriteStreams to flush before settling; a hung
- * filesystem must not leave an exited entry "running" (and kill() waiting).
- * Terminate (≤2.5s) + settle grace (1s) + flush (1.5s) stays inside the 5s
- * scope-close bound, so teardown remains bounded end to end. */
-const SPILL_FLUSH_TIMEOUT_MS = 1_500;
 const ERROR_TEXT_MAX_LENGTH = 4_096;
 
 function bounded(text: string) {
@@ -54,45 +45,6 @@ function boundedError(error: unknown) {
 }
 
 // --- Internal state -----------------------------------------------------------
-
-/** Mutable snapshot; exposed to readers via the readonly TerminalSnapshot type.
- * stdout/stderr are getters over the live OutputBuffers. */
-interface MutableSnapshot extends TerminalSnapshot {
-	status: TerminalStatus;
-	pid?: number;
-	settledAt?: number;
-	exitCode?: number;
-	signal?: string;
-	errorText?: string;
-}
-
-interface Entry {
-	snapshot: MutableSnapshot;
-	child: ChildProcess;
-	scope: Scope.Closeable;
-	stdoutBuf: OutputBuffer;
-	stderrBuf: OutputBuffer;
-	spillStreams: fs.WriteStream[];
-	/** Set in the same synchronous effect that sends SIGTERM so a natural exit
-	 * before signaling keeps its truthful status. */
-	killSignaled: boolean;
-	/** The child emitted 'error' (spawn failure etc.); settles as "failed".
-	 * Kept separate from errorText, which also carries non-fatal notes
-	 * (spill failures) that must not flip a clean exit to "failed". */
-	processErrored: boolean;
-	/** 'exit' event observed (code/signal recorded). */
-	exited: boolean;
-	/** 'close' event observed (stdio flushed; the settle trigger). */
-	stdioClosed: boolean;
-	/** A settle-after-spill-flush is in flight; don't start a second one. */
-	settling: boolean;
-	/** The shell exited without stdio closing; a bounded scope close is queued
-	 * to reap descendants that still hold the inherited pipes open. */
-	exitCleanupStarted: boolean;
-	/** Completed exactly once when the entry settles. Kill callers and the scope
-	 * finalizer can all await the same result without missing a notification. */
-	settled: Deferred.Deferred<void>;
-}
 
 export interface StartOptions {
 	readonly command: string;
@@ -155,116 +107,22 @@ const makeManager = Effect.gen(function* () {
 	const processTree = new ProcessTreeController();
 	const cleanupFibers = yield* FiberSet.make();
 	const runCleanup = yield* FiberSet.runtime(cleanupFibers)();
-	const entries = new Map<string, Entry>();
-
-	const settledHistory = new Map<string, Pick<KillResult, 'title' | 'status' | 'exit'>>();
-
-	const killInterest = new Map<string, number>();
-	const listeners = new Set<() => void>();
-	const idListeners = new Map<string, Set<() => void>>();
+	const closeEntryScope = (entry: TerminalEntry) => Scope.close(entry.scope, Exit.void).pipe(Effect.ignore);
+	const registry = new TerminalRegistry(closeEntryScope);
+	const entries = registry;
+	const outputSpills = new OutputSpillManager();
 
 	let counter = 0;
 	let reserved = 0;
 	let disposed = false;
-	let spillDir: string | undefined | null;
-	let onSettled: ((snap: TerminalSnapshot, consumed: boolean) => void) | undefined;
 
-	const notify = (id?: string) => {
-		for (const listener of [...listeners]) {
-			try {
-				listener();
-			} catch {
-				// A failed widget/render listener must not corrupt lifecycle state.
-			}
-		}
+	const notify = (id?: string) => registry.notify(id);
+	const runningCount = () => registry.runningCount();
+	const addKillInterest = (ids: ReadonlyArray<string>) => registry.addInterest(ids);
+	const releaseKillInterest = (ids: ReadonlyArray<string>) => registry.releaseInterest(ids);
+	const pruneSettled = () => registry.prune(MAX_TRACKED, runCleanup);
 
-		if (id) {
-			for (const listener of idListeners.get(id) ?? []) {
-				try {
-					listener();
-				} catch {
-					// Same.
-				}
-			}
-		}
-	};
-
-	const runningCount = () => [...entries.values()].filter((e) => e.snapshot.status === 'running').length;
-
-	const addKillInterest = (ids: ReadonlyArray<string>) => {
-		for (const id of ids) {
-			killInterest.set(id, (killInterest.get(id) ?? 0) + 1);
-		}
-	};
-
-	const releaseKillInterest = (ids: ReadonlyArray<string>) => {
-		for (const id of ids) {
-			const count = (killInterest.get(id) ?? 1) - 1;
-
-			if (count <= 0) {
-				killInterest.delete(id);
-			} else {
-				killInterest.set(id, count);
-			}
-		}
-	};
-
-	const closeEntryScope = (entry: Entry) => Scope.close(entry.scope, Exit.void).pipe(Effect.ignore);
-
-	const pruneSettled = () => {
-		if (entries.size <= MAX_TRACKED) {
-			return;
-		}
-
-		const candidates = [...entries.values()]
-			.filter((e) => e.snapshot.status !== 'running' && !killInterest.has(e.snapshot.id))
-			.sort((a, b) => (a.snapshot.settledAt ?? a.snapshot.createdAt) - (b.snapshot.settledAt ?? b.snapshot.createdAt));
-
-		for (const entry of candidates) {
-			if (entries.size <= MAX_TRACKED) {
-				break;
-			}
-
-			entries.delete(entry.snapshot.id);
-			runCleanup(
-				closeEntryScope(entry),
-			);
-		}
-	};
-
-	const flushSpillStreams = (entry: Entry) => {
-		const streams = entry.spillStreams;
-
-		entry.spillStreams = [];
-
-		return Effect.forEach(
-			streams,
-			(stream) =>
-				Effect.callback<void>((resume) => {
-					const done = () => resume(Effect.void);
-
-					try {
-						stream.end(done);
-					} catch {
-						// Best effort; tmpdir contents are disposable.
-						done();
-					}
-				}),
-			{ concurrency: 'unbounded', discard: true },
-		).pipe(
-			Effect.timeoutOrElse({
-				duration: SPILL_FLUSH_TIMEOUT_MS,
-				orElse: () =>
-					Effect.sync(() => {
-						entry.stdoutBuf.spillPath = undefined;
-						entry.stderrBuf.spillPath = undefined;
-						entry.snapshot.errorText ??= 'Full-log spill flush timed out; full output may be incomplete';
-					}),
-			}),
-		);
-	};
-
-	const settle = (entry: Entry) => {
+	const settle = (entry: TerminalEntry) => {
 		const s = entry.snapshot;
 
 		if (s.status !== 'running') {
@@ -273,32 +131,18 @@ const makeManager = Effect.gen(function* () {
 
 		s.settledAt = Date.now();
 		s.status = entry.killSignaled ? 'killed' : entry.processErrored ? 'failed' : s.exitCode === 0 ? 'done' : 'failed';
-		settledHistory.set(s.id, {
-			title: s.title,
-			status: s.status,
-			exit: formatExit(s),
-		});
-
-		while (settledHistory.size > MAX_SETTLED_HISTORY) {
-			const oldest = settledHistory.keys().next().value;
-
-			if (oldest === undefined) {
-				break;
-			}
-
-			settledHistory.delete(oldest);
-		}
+		registry.recordSettled(s, formatExit(s));
 		// Completing the Deferred can immediately resume kill waiters, whose
 		// ensuring blocks release interest. Snapshot consumption first so the
 		// settle hook observes the interest that existed when settlement won.
-		const consumed = (killInterest.get(s.id) ?? 0) > 0;
+		const consumed = registry.hasInterest(s.id);
 
 		Deferred.doneUnsafe(entry.settled, Effect.void);
 		notify(s.id);
 		try {
 			// During teardown, don't queue results into a shutting-down session.
 			if (!disposed) {
-				onSettled?.(s, consumed);
+				registry.deliverSettled(s, consumed);
 			}
 		} catch {
 			// The parent session may be unavailable; settlement stays final.
@@ -307,18 +151,18 @@ const makeManager = Effect.gen(function* () {
 		pruneSettled();
 	};
 
-	const settleAfterFlush = (entry: Entry) => {
+	const settleAfterFlush = (entry: TerminalEntry) => {
 		if (entry.settling || entry.snapshot.status !== 'running') {
 			return;
 		}
 
 		entry.settling = true;
 		runCleanup(
-			flushSpillStreams(entry).pipe(Effect.andThen(Effect.sync(() => settle(entry)))),
+			outputSpills.flush(entry).pipe(Effect.andThen(Effect.sync(() => settle(entry)))),
 		);
 	};
 
-	const scheduleExitCleanup = (entry: Entry) => {
+	const scheduleExitCleanup = (entry: TerminalEntry) => {
 		if (entry.exitCleanupStarted) {
 			return;
 		}
@@ -331,101 +175,6 @@ const makeManager = Effect.gen(function* () {
 				),
 			),
 		);
-	};
-
-	const resolveSpillDir = () => {
-		if (spillDir !== undefined) {
-			return spillDir ?? undefined;
-		}
-
-		try {
-			const base = path.join(os.tmpdir(), 'pi-background-terminals');
-
-			fs.mkdirSync(base, { recursive: true, mode: 0o700 });
-			fs.chmodSync(base, 0o700);
-			spillDir = fs.mkdtempSync(path.join(base, 'session-'));
-			fs.chmodSync(spillDir, 0o700);
-		} catch {
-			spillDir = null;
-		}
-
-		return spillDir ?? undefined;
-	};
-
-	const makeSpill = (entry: () => Entry | undefined, id: string, stream: 'stdout' | 'stderr', resumeSource: () => void) => {
-		const dir = resolveSpillDir();
-
-		if (!dir) {
-			return undefined;
-		}
-
-		const spillPath = path.join(dir, `${id}.${stream}.log`);
-
-		try {
-			const file = fs.createWriteStream(spillPath, {
-				flags: 'a',
-				mode: 0o600,
-			});
-
-			let broken = false;
-			let capped = false;
-			let writtenBytes = 0;
-
-			file.on('error', (error) => {
-				broken = true;
-				resumeSource();
-
-				const current = entry();
-
-				if (current) {
-					const buf = stream === 'stdout' ? current.stdoutBuf : current.stderrBuf;
-
-					buf.spillPath = undefined;
-					current.snapshot.errorText ??= bounded(`Full-log spill to ${spillPath} failed: ${boundedError(error)}`);
-				}
-			});
-
-			return {
-				spillPath,
-				file,
-				write: (chunk: string) => {
-					// writableEnded guard: late 'data' after the settle flush must not
-					// error the ended stream (and falsely report the spill as broken).
-					if (broken || capped || file.writableEnded) {
-						return true;
-					}
-
-					const chunkBytes = Buffer.byteLength(chunk, 'utf8');
-
-					if (writtenBytes + chunkBytes > MAX_SPILL_BYTES_PER_STREAM) {
-						capped = true;
-
-						const current = entry();
-
-						if (current) {
-							const buf = stream === 'stdout' ? current.stdoutBuf : current.stderrBuf;
-
-							buf.spillPath = undefined;
-							current.snapshot.errorText ??= bounded(`${stream} full-log spill reached the ${MAX_SPILL_BYTES_PER_STREAM}-byte safety limit`);
-						}
-
-						return true;
-					}
-
-					writtenBytes += chunkBytes;
-
-					const accepted = file.write(chunk);
-
-					if (!accepted) {
-						file.once('drain', resumeSource);
-					}
-
-					return accepted;
-				},
-			};
-		} catch {
-			return undefined;
-		}
 	};
 
 	const start = (options: StartOptions) =>
@@ -469,15 +218,15 @@ const makeManager = Effect.gen(function* () {
 
 				const id = `bt-${++counter}`;
 				const entryRef = () => entries.get(id);
-				const stdoutSpill = makeSpill(entryRef, id, 'stdout', () => child.stdout?.resume());
-				const stderrSpill = makeSpill(entryRef, id, 'stderr', () => child.stderr?.resume());
+				const stdoutSpill = outputSpills.create(entryRef, id, 'stdout', () => child.stdout?.resume());
+				const stderrSpill = outputSpills.create(entryRef, id, 'stderr', () => child.stderr?.resume());
 				const stdoutBuf = new OutputBuffer(RETAINED_PER_STREAM, stdoutSpill?.write);
 				const stderrBuf = new OutputBuffer(RETAINED_PER_STREAM, stderrSpill?.write);
 
 				stdoutBuf.spillPath = stdoutSpill?.spillPath;
 				stderrBuf.spillPath = stderrSpill?.spillPath;
 
-				const snapshot: MutableSnapshot = {
+				const snapshot: MutableTerminalSnapshot = {
 					id,
 					command: options.command,
 					title: options.title,
@@ -496,21 +245,15 @@ const makeManager = Effect.gen(function* () {
 				const scope = yield* Scope.make();
 				const settled = yield* Deferred.make<void>();
 
-				const entry: Entry = {
+				const entry = new TerminalEntry(
 					snapshot,
 					child,
 					scope,
 					stdoutBuf,
 					stderrBuf,
-					spillStreams: [stdoutSpill?.file, stderrSpill?.file].filter((file): file is fs.WriteStream => file !== undefined),
-					killSignaled: false,
-					processErrored: false,
-					exited: false,
-					stdioClosed: false,
-					settling: false,
-					exitCleanupStarted: false,
+					[stdoutSpill?.file, stderrSpill?.file].filter((file): file is fs.WriteStream => file !== undefined),
 					settled,
-				};
+				);
 
 				// Plain-callback stream plumbing (the codex-backend precedent):
 				// setEncoding's internal StringDecoder is multibyte-safe across
@@ -589,15 +332,14 @@ const makeManager = Effect.gen(function* () {
 
 							if (entry.snapshot.status === 'running' && !entry.settling) {
 								// Force the settle ourselves. When `settling` is set, the
-								// close path's flush→settle is already in flight (bounded by
-								// SPILL_FLUSH_TIMEOUT_MS) — settling here first would cite a
-								// spill file that is still being flushed.
+								// close path's flush→settle is already in flight — settling here
+								// first would cite a spill file that is still being flushed.
 								if (!entry.stdioClosed) {
 									entry.snapshot.errorText ??= 'stdio did not close after termination; output may be incomplete';
 								}
 
 								entry.settling = true;
-								yield* flushSpillStreams(entry);
+								yield* outputSpills.flush(entry);
 								settle(entry);
 							}
 						}),
@@ -651,7 +393,7 @@ const makeManager = Effect.gen(function* () {
 			return Effect.succeed(entry.snapshot as TerminalSnapshot);
 		});
 
-	const killEntry = (entry: Entry) =>
+	const killEntry = (entry: TerminalEntry) =>
 		Effect.sync(() => {
 			if (entry.snapshot.status !== 'running') {
 				return;
@@ -669,7 +411,7 @@ const makeManager = Effect.gen(function* () {
 			const byId = new Map(
 				unique
 					.map((id) => entries.get(id))
-					.filter((entry): entry is Entry => entry !== undefined)
+					.filter((entry): entry is TerminalEntry => entry !== undefined)
 					.map((entry) => [entry.snapshot.id, entry]),
 			);
 
@@ -691,7 +433,7 @@ const makeManager = Effect.gen(function* () {
 				// prunes — a just-settled entry must not vanish out from under it.
 				return unique.map((id): KillResult => {
 					const snapshot = byId.get(id)?.snapshot;
-					const history = settledHistory.get(id);
+					const history = registry.history(id);
 					const status = snapshot?.status ?? history?.status ?? 'killed';
 					const wasRunning = runningIds.includes(id);
 
@@ -729,59 +471,18 @@ const makeManager = Effect.gen(function* () {
 		// within the shutdown bound; the FiberSet finalizer interrupts anything
 		// still live when the manager scope closes, so cleanup cannot leak.
 		yield* FiberSet.awaitEmpty(cleanupFibers).pipe(Effect.timeout(STOP_TIMEOUT_MS), Effect.ignore);
-		yield* Effect.sync(() => {
-			const dir = spillDir;
-
-			spillDir = null;
-			if (dir) {
-				fs.rmSync(dir, { recursive: true, force: true });
-			}
-		});
+		yield* outputSpills.dispose();
 		yield* Effect.sync(() => notify());
 	});
 
-	const view: TerminalReadModel = {
-		list: () => [...entries.values()].map((entry) => entry.snapshot),
-		get: (id) => entries.get(id)?.snapshot,
-		size: () => entries.size,
-		subscribe: (listener) => {
-			listeners.add(listener);
+	const view = registry.readModel();
 
-			return () => listeners.delete(listener);
-		},
-		subscribeTo: (id, listener) => {
-			let set = idListeners.get(id);
-
-			if (!set) {
-				set = new Set();
-				idListeners.set(id, set);
-			}
-
-			set.add(listener);
-
-			return () => {
-				set.delete(listener);
-				if (set.size === 0) {
-					idListeners.delete(id);
-				}
-			};
-		},
-		requestKill: (id) => {
-			const entry = entries.get(id);
-
-			if (!entry) {
-				return;
-			}
-			// UI-initiated kills are not "consumed": the killed result still flows
-			// back to the model as a follow-up message (subagents precedent).
-			runCleanup(
-				killEntry(entry).pipe(Effect.ignore),
-			);
-		},
-		setOnSettled: (hook) => {
-			onSettled = hook;
-		},
-	};
+	registry.setRequestKillHandler((entry) => {
+		// UI-initiated kills are not consumed: the result flows back as a follow-up.
+		runCleanup(
+			killEntry(entry).pipe(Effect.ignore),
+		);
+	});
 
 	// Safety net: disposing the ManagedRuntime tears everything down even if
 	// the extension forgot to call disposeAll explicitly.

@@ -9,13 +9,21 @@ cd ~/.pi/agent
 corepack enable
 corepack use pnpm@11.17.0
 pnpm install
-
-# fmtkit provides the repository formatter/linter
-brew tap oullin/fmtkit
-brew install --cask fmtkit
 ```
 
 `corepack enable` and `corepack use` install the pinned pnpm version automatically. If you don't use Corepack, install pnpm 11.17.0 or newer yourself (see the [pnpm installation guide](https://pnpm.io/installation)) and run `pnpm install`.
+
+## fmtkit
+
+The repository uses [fmtkit](https://github.com/oullin/fmtkit) for TypeScript/Vue formatting and linting. On macOS, install it with Homebrew:
+
+```sh
+brew tap oullin/fmtkit
+brew install --cask fmtkit
+fmtkit version
+```
+
+On other platforms, follow the installation instructions in the upstream repository. `make format` runs fmtkit for changed files; `make format-all` formats the complete TypeScript/Vue tree.
 
 ## fd and rg tools
 

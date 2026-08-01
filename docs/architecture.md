@@ -23,6 +23,15 @@ Framework entrypoints (`index.ts` extension registrations, TUI render callbacks,
 - `ContextUtilizationFormatter`, `ActivityStatusFormatter`, and snapshot formatters — pure presentation policies.
 - `OutputBuffer` — bounded stream capture and spill coordination.
 
+Concern packages prevent god files as features grow:
+
+- `background-terminals/src/process-tree/` separates shell construction, signal delivery, and close observation.
+- `background-terminals/src/terminal-output/` separates buffering, limits, and spill-file lifecycle.
+- `background-terminals/src/terminal-manager/` separates terminal entry state from registry/read-model concerns.
+- `workflows/dashboard/` owns run-cache parsing and artifact hydration, apart from dashboard rendering.
+- `workflows/runner/` owns progress/transcript reduction, apart from session orchestration.
+- `subagents/src/backends/codex/` owns binary discovery, protocol mapping, and process-tree shutdown.
+
 Effect `Context.Service` values remain the dependency-injection ports. Concrete classes are constructed in the corresponding runtime layer and injected into those ports; this keeps ambient process and runtime concerns out of domain objects.
 
 Future refactors should extract another class only when it owns a cohesive policy or lifecycle. Do not create classes that merely forward one call, and do not turn host-required callbacks or tiny pure value helpers into artificial objects.
