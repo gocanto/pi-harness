@@ -22,6 +22,11 @@
  * private to the owner (see serialization.ts) and are swept automatically
  * once older than `WORKFLOW_RETENTION_MS` (see retention.ts); a run tracked
  * as active in this process is never removed regardless of age.
+ *
+ * The `workflow` tool is explicit opt-in (see activation.ts): it is inactive
+ * by default and only becomes callable once the user runs `/workflows
+ * enable` (or sets `PI_WORKFLOWS_ENABLED`). There is no hidden trigger
+ * phrase — activation is a visible, user-controlled setting.
  */
 
 import { randomBytes } from "node:crypto";
@@ -37,6 +42,11 @@ import {
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type, type Static } from "typebox";
 import { formatActivityStatus } from "../shared/activity-status.ts";
+import {
+  resolveWorkflowActivation,
+  writeActivationPreference,
+  WORKFLOW_ACTIVATION_ENV_VAR,
+} from "./activation.ts";
 import { createWorkflowPersistence, persistWorkflowJson } from "./artifacts.ts";
 import { RunController } from "./controller.ts";
 import { sessionWorkflowRunIds, showWorkflowDashboard } from "./dashboard.ts";
@@ -83,6 +93,7 @@ import { safeStringify, writeFileAtomic } from "./serialization.ts";
 
 const PREVIEW_LENGTH = 200;
 const EMIT_INTERVAL_MS = 120;
+const WORKFLOW_TOOL_NAME = "workflow";
 
 const THINKING_LEVELS = [
   "off",
@@ -146,6 +157,23 @@ function summaryLine(details: WorkflowDetails): string {
 
 function writeRunFile(runDir: string, name: string, content: string) {
   writeFileAtomic(path.join(runDir, name), content);
+}
+
+/** Add/remove the workflow tool from the active set without disturbing other tools. */
+function applyWorkflowActivation(pi: ExtensionAPI, enabled: boolean) {
+  const withoutWorkflow = pi
+    .getActiveTools()
+    .filter((name) => name !== WORKFLOW_TOOL_NAME);
+  pi.setActiveTools(
+    enabled ? [...withoutWorkflow, WORKFLOW_TOOL_NAME] : withoutWorkflow,
+  );
+}
+
+function applyResolvedWorkflowActivation(pi: ExtensionAPI) {
+  applyWorkflowActivation(
+    pi,
+    resolveWorkflowActivation({ agentDir: getAgentDir() }).enabled,
+  );
 }
 
 function compactToolDetails(details: WorkflowDetails): WorkflowDetails {
@@ -293,6 +321,10 @@ export default function workflows(pi: ExtensionAPI) {
   pi.on("session_start", (_event, ctx) => {
     if (ctx.hasUI) lastUi = ctx.ui;
     updateIndicator();
+    // Explicit opt-in: re-resolve and apply the activation policy every
+    // session so a persisted preference or environment override always wins
+    // over whatever the tool's default active state happened to be.
+    applyResolvedWorkflowActivation(pi);
     // Best-effort retention sweep; cleanupExpiredWorkflowRuns already
     // tolerates a missing directory and per-run failures internally.
     cleanupExpiredWorkflowRuns(
@@ -327,9 +359,40 @@ export default function workflows(pi: ExtensionAPI) {
 
   pi.registerCommand("workflows", {
     description:
-      "List workflow runs (`/workflows <runId>` for one run's detail)",
+      "List workflow runs (`/workflows <runId>` for one run's detail); " +
+      "`/workflows enable|disable|status` controls whether the model can call the workflow tool",
     handler: async (rawArgs, ctx) => {
       const arg = rawArgs.trim();
+      const directive = arg.toLowerCase();
+
+      if (directive === "enable" || directive === "disable") {
+        const enabled = directive === "enable";
+        writeActivationPreference(getAgentDir(), enabled);
+        applyResolvedWorkflowActivation(pi);
+        const resolved = resolveWorkflowActivation({
+          agentDir: getAgentDir(),
+        });
+        ctx.ui.notify(
+          resolved.enabled
+            ? "Workflow tool enabled: the model can now call `workflow`."
+            : "Workflow tool disabled: the model can no longer call `workflow`.",
+          "info",
+        );
+        return;
+      }
+
+      if (directive === "status") {
+        const resolved = resolveWorkflowActivation({
+          agentDir: getAgentDir(),
+        });
+        ctx.ui.notify(
+          `Workflow tool is ${resolved.enabled ? "enabled" : "disabled"} (source: ${resolved.source}). ` +
+            `Use \`/workflows enable\` or \`/workflows disable\` to change it, or set ${WORKFLOW_ACTIVATION_ENV_VAR}.`,
+          "info",
+        );
+        return;
+      }
+
       if (ctx.mode === "tui") {
         lastUi = ctx.ui;
         await showWorkflowDashboard(ctx, activeDetails, arg || undefined);
@@ -375,7 +438,7 @@ export default function workflows(pi: ExtensionAPI) {
   });
 
   pi.registerTool({
-    name: "workflow",
+    name: WORKFLOW_TOOL_NAME,
     label: "Workflow",
     description: WORKFLOW_TOOL_DESCRIPTION,
     promptSnippet: WORKFLOW_PROMPT_SNIPPET,

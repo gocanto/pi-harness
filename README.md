@@ -6,7 +6,7 @@ This repository contains an opinionated setup and extension harness for **Pi Cod
 - Updates the bottom bar to show active model, context window usage, cost, token speed, git branch, and changed file counts
 - Adds background terminals + TUI to manage them (`background-terminals`)
 - Adds subagents support (`subagents`)
-- Adds task automation workflows (`workflows`)
+- Adds task automation workflows (`workflows`), off by default until you run `/workflows enable` (see [`SETUP.md`](SETUP.md#workflows))
 - Adds an `ask_user` tool for interactive multiple-choice questions
 - Adds first-class `fd` (file discovery) and `rg` (content search) tools (`file-search`)
 
