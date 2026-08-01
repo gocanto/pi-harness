@@ -4,7 +4,7 @@ Clone or copy this repository to `~/.pi/agent`, then install its dependencies:
 
 ```sh
 cd ~/.pi/agent
-npm install
+pnpm install
 ```
 
 ## fd and rg tools

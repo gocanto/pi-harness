@@ -1,15 +1,37 @@
-# Pi Harness Setup
+# Pi Harness
 
-This repository contains an opinionated setup and extension harness for **Pi Coding Agent**:
+A practical, opinionated extension pack for [Pi Coding Agent](https://github.com/badlogic/pi-mono).
+Copy it into Pi's agent directory and get a useful coding workspace without changing Pi itself.
 
-- Sets up GitHub Dark default as the theme (`themes/github-dark-default.json`)
-- Updates the bottom bar to show active model, context window usage, cost, token speed, git branch, and changed file counts
-- Adds background terminals + TUI to manage them (`background-terminals`)
-- Adds subagents support (`subagents`)
-- Adds task automation workflows (`workflows`)
-- Adds an `ask_user` tool for interactive multiple-choice questions
-- Adds first-class `fd` (file discovery) and `rg` (content search) tools (`file-search`)
+## What
 
-## Setup Instructions
+Pi Harness adds local extensions, skills, and a theme for:
 
-See [`SETUP.md`](SETUP.md) for installation and usage instructions.
+- model, context, cost, Git, and changed-file visibility;
+- background terminals with bounded output and a TUI;
+- trusted subagents and bounded multi-agent workflows;
+- `fd`/`rg` search, interactive questions, summaries, and clipboard-friendly output.
+
+## Why
+
+Pi is deliberately small. This repository supplies the surrounding workflow needed for day-to-day coding: inspect the repository, delegate bounded work, run long-lived commands, and keep progress visible. Safety boundaries, output limits, cancellation, and deterministic tests are part of the setup—not optional polish.
+
+## Who
+
+This is for Pi users who want a maintained, local, opinionated setup and for contributors extending Pi through its extension API. It is not a replacement for Pi, a hosted service, or a general-purpose agent framework.
+
+## Install
+
+Requirements: Pi Coding Agent, Node.js, and pnpm.
+
+```sh
+git clone https://github.com/gocanto/pi-harness.git ~/.pi/agent
+cd ~/.pi/agent
+pnpm install
+```
+
+Start Pi from `~/.pi/agent`. See [`SETUP.md`](SETUP.md) for configuration, extension behavior, workflow activation, and verification commands.
+
+```sh
+pnpm run verify
+```
