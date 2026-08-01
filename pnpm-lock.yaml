@@ -157,6 +157,15 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
 
+  extensions/workflows:
+    devDependencies:
+      '@effect/tsgo':
+        specifier: ^0.24.2
+        version: 0.24.3
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+
 packages:
 
   '@anthropic-ai/claude-agent-sdk-darwin-arm64@0.3.220':

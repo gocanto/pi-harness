@@ -7,12 +7,14 @@ import {
   emptyGitInfoState,
   GIT_INFO_CHANNEL,
   REFRESH_CHANNEL,
-  type PullRequestInfo,
 } from "../shared/dashboard-state.ts";
 import {
   loadChangedFiles,
+  loadFileDiff,
   showChangedFiles,
+  type ChangedFile,
 } from "./src/changed-files-view.ts";
+import { PullRequestQueryTracker } from "./src/pull-request-lookup.ts";
 import { runCommand, type CommandRunner } from "./src/process.ts";
 import { makeRefreshCoordinator } from "./src/refresh-coordinator.ts";
 import {
@@ -30,34 +32,13 @@ function countChangedFiles(status: string) {
   return status.split("\n").filter(Boolean).length;
 }
 
-function parsePullRequest(value: unknown) {
-  if (typeof value !== "object" || value === null) return null;
-  if (!("number" in value) || typeof value.number !== "number") return null;
-  if (!("url" in value) || typeof value.url !== "string") return null;
-  if (!("state" in value) || value.state !== "OPEN") return null;
-
-  return {
-    number: value.number,
-    url: value.url,
-    isDraft: "isDraft" in value && value.isDraft === true,
-  } satisfies PullRequestInfo;
-}
-
-function parsePullRequestJson(value: string) {
-  try {
-    return parsePullRequest(JSON.parse(value));
-  } catch {
-    return null;
-  }
-}
-
 export default function gitInfo(pi: ExtensionAPI) {
   let state = emptyGitInfoState();
   let runtime: GitInfoRuntime | undefined;
   let pollingFiber: Fiber.Fiber<void> | undefined;
   let currentContext: ExtensionContext | undefined;
   let generation = 0;
-  let queriedPrBranch: string | null = null;
+  const prQueryTracker = new PullRequestQueryTracker();
   const refreshCoordinator = makeRefreshCoordinator();
 
   const getRuntime = () => (runtime ??= createRuntime());
@@ -68,18 +49,6 @@ export default function gitInfo(pi: ExtensionAPI) {
     ctx: ExtensionContext,
     timeout: number,
   ) => runCommand(command, args, ctx.cwd, timeout);
-
-  const lookupPullRequest = (ctx: ExtensionContext, branch: string) =>
-    Effect.gen(function* () {
-      const result = yield* run(
-        "gh",
-        ["pr", "view", branch, "--json", "number,url,state,isDraft"],
-        ctx,
-        GH_TIMEOUT_MS,
-      );
-      if (result.code !== 0) return null;
-      return parsePullRequestJson(result.stdout);
-    });
 
   const refreshEffect = (
     ctx: ExtensionContext,
@@ -100,7 +69,7 @@ export default function gitInfo(pi: ExtensionAPI) {
         if (refreshGeneration !== generation) return;
 
         if (repo.code !== 0 || repo.stdout.trim() !== "true") {
-          queriedPrBranch = null;
+          prQueryTracker.reset();
           state = emptyGitInfoState();
           publish();
           return;
@@ -125,7 +94,7 @@ export default function gitInfo(pi: ExtensionAPI) {
         const shortHead = headResult.stdout.trim();
         const branch =
           branchName || (shortHead ? `detached@${shortHead}` : "detached");
-        const branchChanged = branchName !== queriedPrBranch;
+        const branchChanged = prQueryTracker.hasChanged(branchName);
 
         state = {
           ...state,
@@ -140,18 +109,34 @@ export default function gitInfo(pi: ExtensionAPI) {
         publish();
 
         if (!branchName) {
-          // queriedPrBranch is never "", so branchChanged already cleared pullRequest.
-          queriedPrBranch = null;
+          // The tracker is never "changed" against "", so branchChanged
+          // already cleared pullRequest above.
+          prQueryTracker.reset();
           return;
         }
 
-        if (forcePullRequest || branchChanged) {
-          queriedPrBranch = branchName;
-          const pullRequest = yield* lookupPullRequest(ctx, branchName);
-          if (refreshGeneration !== generation) return;
-          state = { ...state, pullRequest };
-          publish();
-        }
+        const lookup = yield* prQueryTracker.queryIfNeeded(
+          ctx.cwd,
+          branchName,
+          GH_TIMEOUT_MS,
+          forcePullRequest,
+        );
+        // Re-check generation before touching shared state: a superseded
+        // refresh's lookup must not record success or publish, even though
+        // its `gh` call already completed.
+        if (refreshGeneration !== generation) return;
+
+        // `null` means no query was necessary; "failed" means `gh` did not
+        // complete, so the tracker is left unrecorded and a later refresh
+        // retries automatically. Neither case updates published state.
+        if (lookup === null || lookup._tag === "failed") return;
+
+        prQueryTracker.recordSuccess(branchName);
+        state = {
+          ...state,
+          pullRequest: lookup._tag === "found" ? lookup.pullRequest : null,
+        };
+        publish();
       });
     });
 
@@ -189,7 +174,7 @@ export default function gitInfo(pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event, ctx) => {
     generation += 1;
-    queriedPrBranch = null;
+    prQueryTracker.reset();
 
     const previousPollingFiber = pollingFiber;
     pollingFiber = undefined;
@@ -233,20 +218,30 @@ export default function gitInfo(pi: ExtensionAPI) {
         return;
       }
 
-      const files = await runEffect(getRuntime(), loadChangedFiles(ctx.cwd), {
+      const result = await runEffect(getRuntime(), loadChangedFiles(ctx.cwd), {
         signal: ctx.signal,
         interruptMessage: "Loading changed files was cancelled.",
       });
-      if (files === null) {
+      if (result === null) {
         ctx.ui.notify("Not a git repository", "warning");
         return;
       }
-      if (files.length === 0) {
+      if (result.files.length === 0) {
         ctx.ui.notify("Working tree is clean", "info");
         return;
       }
 
-      await showChangedFiles(ctx, files);
+      const loadDiff = (file: ChangedFile, signal: AbortSignal) =>
+        runEffect(
+          getRuntime(),
+          loadFileDiff(result.repoRoot, file, result.hasHead),
+          {
+            signal,
+            interruptMessage: "Diff loading was cancelled.",
+          },
+        );
+
+      await showChangedFiles(ctx, result, loadDiff);
     },
   });
 

@@ -5,9 +5,13 @@
 > **this** file is how to stand up _one pi extension_ on the same toolchain and where to
 > draw the line between "wrap in Effect" and "leave as plain TS".
 >
-> **Verified against** `effect@4.0.0-beta.98`, `@effect/platform-node@4.0.0-beta.98`,
-> `@effect/tsgo@0.19.0`, `typescript@7.0.2` (checked 2026-07-13, in `extensions/subagents`).
-> `npm run check` there passes clean — use it as the reference implementation.
+> **Verified against** `effect@^4.0.0-beta.99` (currently resolving `4.0.0-beta.102` in
+> `pnpm-lock.yaml`), `@effect/platform-node@^4.0.0-beta.99` (same resolution),
+> `@effect/tsgo@^0.24.2` (resolving `0.24.3`), `typescript@^7.0.2` (checked 2026-07-31, in
+> `extensions/subagents`). `npm run check` there passes clean — use it as the reference
+> implementation. **Version policy:** these are floating beta ranges, not exact pins — see
+> §8.1 for the rationale and the deliberate-upgrade procedure. Earlier drafts of this guide
+> recommended an exact `4.0.0-beta.98` pin; that recommendation is stale and superseded.
 >
 > Audience: the agents migrating `firecrawl-search`, `ask-user`, `model-info`,
 > `git-info`, `ui-customization`, and `copy-all`.
@@ -40,8 +44,9 @@ toolchain (§1) and leaving the body plain. Don't invent an Effect layer to have
 
 ## 1. Per-extension toolchain (copy this exactly)
 
-Each extension is its own npm package with its own `node_modules`. Replicate the pinned
-setup — do **not** float the versions.
+Each extension is its own npm package with its own `node_modules`. Replicate the range
+policy below exactly — every workspace consumer uses the same caret range, and the
+lockfile (`pnpm-lock.yaml`) is what pins the actual resolved version (see §8.1).
 
 `package.json`:
 
@@ -55,11 +60,11 @@ setup — do **not** float the versions.
     "prepare": "effect-tsgo patch", // patches the Effect LS into the tsgo binary
   },
   "dependencies": {
-    "effect": "4.0.0-beta.98", // EXACT pin, no ^
-    "@effect/platform-node": "4.0.0-beta.98", // only if you touch fs / child processes
+    "effect": "^4.0.0-beta.99", // same caret range as every other extension
+    "@effect/platform-node": "^4.0.0-beta.99", // only if you touch fs / child processes
   },
   "devDependencies": {
-    "@effect/tsgo": "^0.19.0",
+    "@effect/tsgo": "^0.24.2",
     "typescript": "^7.0.2",
   },
 }
@@ -336,8 +341,28 @@ the pinned versions. If a migrated extension fails `check` with `Effect.fork`/`S
 
 ## 8. Don'ts (keep it lean)
 
-1. **Don't float versions.** Pin `effect` and `@effect/platform-node` to the exact same
-   `4.0.0-beta.98`; `unstable/*` can break between betas.
+1. **Version policy: a shared floating beta range, pinned by the lockfile.** Every
+   workspace consumer declares `effect` and `@effect/platform-node` (and `@effect/tsgo`) as
+   the same caret range — `^4.0.0-beta.99` for `effect`/`@effect/platform-node`,
+   `^0.24.2` for `@effect/tsgo` — rather than an exact version. `pnpm-lock.yaml` is what
+   actually pins the resolved version for reproducible installs (`pnpm install
+--frozen-lockfile`), and today that resolves a single version of each package across the
+   whole workspace (`pnpm why effect -r` shows exactly one). Rationale: a caret range whose
+   base version carries a prerelease tag only admits _other prereleases that share the same
+   `major.minor.patch` tuple_ — so `^4.0.0-beta.99` matches `4.0.0-beta.100`,
+   `4.0.0-beta.102`, … but never `4.0.0-beta.98` (older) or a `4.1.0-beta.*`/`5.0.0-beta.*`
+   prerelease (different tuple); it would also accept a final `4.0.x`/`4.1.0` release, which
+   is the same "no incompatible major jump" guarantee any caret range gives. That's narrow
+   enough that letting `pnpm install` land routine beta bugfixes without an edit to every
+   `package.json` is worth the small amount of drift risk, as long as the lockfile stays the
+   single source of truth for what's actually installed. **Don't** let one
+   extension's manifest diverge to a different range or an ad-hoc exact pin — that's what
+   creates the exact contradiction this note replaces.
+   To bump the beta deliberately: run `pnpm update effect @effect/platform-node
+@effect/tsgo --recursive`, review the `pnpm-lock.yaml` diff and the new beta's changelog
+   for API-surface changes, update this guide's "Verified against" line, then run `pnpm run
+verify` (and `pnpm install --frozen-lockfile` to confirm the lockfile is reproducible)
+   before committing the bump as one synchronized change.
 2. **Don't Effect-ify pure/UI code.** No service or layer for a clipboard write, a string
    truncation, or a popup. §0 is the test: is there a typed-error / cancellation / resource /
    retry concern? If not, leave it.
