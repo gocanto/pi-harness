@@ -9,6 +9,10 @@ cd ~/.pi/agent
 corepack enable
 corepack use pnpm@11.17.0
 pnpm install
+
+# fmtkit provides the repository formatter/linter
+brew tap oullin/fmtkit
+brew install --cask fmtkit
 ```
 
 `corepack enable` and `corepack use` install the pinned pnpm version automatically. If you don't use Corepack, install pnpm 11.17.0 or newer yourself (see the [pnpm installation guide](https://pnpm.io/installation)) and run `pnpm install`.
@@ -35,13 +39,14 @@ The choice made by `/workflows enable`/`disable` is saved under `~/.pi/agent/wor
 
 ## Testing
 
-Run the deterministic test suite before every change:
+Run the formatter and deterministic Vitest suite before every change:
 
 ```sh
+make format
 pnpm test
 ```
 
-This runs every extension's deterministic tests plus the `file-search` Vitest suite. It never starts a real Claude or Codex session, so it needs no provider credentials or installed CLIs.
+This runs every extension's deterministic Vitest suite. It never starts a real Claude or Codex session, so it needs no provider credentials or installed CLIs.
 
 The `subagents` extension also has live provider smoke tests that spawn real Claude Code and Codex sessions. They are excluded from `pnpm test` and must be run explicitly:
 
@@ -57,7 +62,7 @@ Add the included theme to `~/.pi/agent/settings.json` while keeping your existin
 
 ```json
 {
-  "theme": "github-dark-default"
+	"theme": "github-dark-default"
 }
 ```
 

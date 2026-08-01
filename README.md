@@ -13,3 +13,5 @@ This repository contains an opinionated setup and extension harness for **Pi Cod
 ## Setup Instructions
 
 See [`SETUP.md`](SETUP.md) for installation and usage instructions.
+
+Development uses Vitest for all test suites, Vite 8 as the test runner foundation, and [fmtkit](https://github.com/oullin/fmtkit) for TypeScript/Vue formatting and linting. Run `make format` and `pnpm test` before submitting changes.

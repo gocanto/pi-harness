@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "check": "tsc --noEmit -p .",
-    "test": "node --test --experimental-strip-types process.test.ts refresh-coordinator.test.ts pull-request-lookup.test.ts changed-files-view.test.ts"
+    "test": "vitest run --config ../../vitest.config.ts ../../extensions/git-info/*.test.ts"
   },
   "devDependencies": {
     "@effect/tsgo": "^0.24.2",

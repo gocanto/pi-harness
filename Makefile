@@ -9,8 +9,8 @@ help:
 	@printf "  install                 install dependencies with pnpm\n"
 	@printf "  check                   typecheck TypeScript files (tsc --noEmit)\n"
 	@printf "  test                    run extension test suites\n"
-	@printf "  format                  format codebase with prettier\n"
-	@printf "  format-all              format all TypeScript and JSON files\n"
+	@printf "  format                  format changed TypeScript/Vue files with fmtkit\n"
+	@printf "  format-all              format all TypeScript/Vue files with fmtkit\n"
 	@printf "  verify                  run format-check, typecheck, and unit tests\n"
 
 install:
@@ -28,7 +28,7 @@ format:
 	pnpm run format
 
 format-all:
-	pnpm run format
+	pnpm run format:all
 
 verify:
 	pnpm run format:check

@@ -52,21 +52,21 @@ lockfile (`pnpm-lock.yaml`) is what pins the actual resolved version (see §8.1)
 
 ```jsonc
 {
-  "name": "<ext>",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "check": "tsc --noEmit -p .",
-    "prepare": "effect-tsgo patch", // patches the Effect LS into the tsgo binary
-  },
-  "dependencies": {
-    "effect": "^4.0.0-beta.99", // same caret range as every other extension
-    "@effect/platform-node": "^4.0.0-beta.99", // only if you touch fs / child processes
-  },
-  "devDependencies": {
-    "@effect/tsgo": "^0.24.2",
-    "typescript": "^7.0.2",
-  },
+	"name": "<ext>",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"check": "tsc --noEmit -p .",
+		"prepare": "effect-tsgo patch", // patches the Effect LS into the tsgo binary
+	},
+	"dependencies": {
+		"effect": "^4.0.0-beta.99", // same caret range as every other extension
+		"@effect/platform-node": "^4.0.0-beta.99", // only if you touch fs / child processes
+	},
+	"devDependencies": {
+		"@effect/tsgo": "^0.24.2",
+		"typescript": "^7.0.2",
+	},
 }
 ```
 
@@ -74,11 +74,11 @@ lockfile (`pnpm-lock.yaml`) is what pins the actual resolved version (see §8.1)
 
 ```jsonc
 {
-  "extends": "../../tsconfig.json",
-  "compilerOptions": {
-    "plugins": [{ "name": "@effect/language-service" }],
-  },
-  "include": ["index.ts", "src/**/*.ts", "*.test.ts"],
+	"extends": "../../tsconfig.json",
+	"compilerOptions": {
+		"plugins": [{ "name": "@effect/language-service" }],
+	},
+	"include": ["index.ts", "src/**/*.ts", "*.test.ts"],
 }
 ```
 
@@ -113,34 +113,34 @@ message). This is lifted verbatim from `src/runtime.ts` — reuse it.
 
 ```ts
 // src/runtime.ts
-import { Cause, Exit, Layer, ManagedRuntime, type Effect } from "effect";
-import { NodeServices } from "@effect/platform-node"; // only if you need fs / processes
+import { Cause, Exit, Layer, ManagedRuntime, type Effect } from 'effect';
+import { NodeServices } from '@effect/platform-node'; // only if you need fs / processes
 
 // Compose your services here (see §3). NodeServices.layer =
 // ChildProcessSpawner | FileSystem | Path | Crypto | Stdio | Terminal.
 const AppLayer = Layer.mergeAll(NodeServices.layer /*, MyServiceLive */);
 
 export function createRuntime() {
-  return ManagedRuntime.make(AppLayer);
+	return ManagedRuntime.make(AppLayer);
 }
+
 export type ExtRuntime = ReturnType<typeof createRuntime>;
 
 /** Run an effect from an async handler: value on success, thrown Error otherwise. */
-export async function runTool<A, E>(
-  runtime: ExtRuntime,
-  effect: Effect.Effect<A, E>,
-  options: { signal?: AbortSignal; interruptMessage?: string } = {},
-) {
-  const exit = await runtime.runPromiseExit(
-    effect,
-    options.signal ? { signal: options.signal } : undefined,
-  );
-  if (Exit.isSuccess(exit)) return exit.value;
-  if (Cause.hasInterruptsOnly(exit.cause)) {
-    throw new Error(options.interruptMessage ?? "Operation was aborted.");
-  }
-  const [first] = Cause.prettyErrors(exit.cause);
-  throw new Error(first?.message ?? Cause.pretty(exit.cause));
+export async function runTool<A, E>(runtime: ExtRuntime, effect: Effect.Effect<A, E>, options: { signal?: AbortSignal; interruptMessage?: string } = {}) {
+	const exit = await runtime.runPromiseExit(effect, options.signal ? { signal: options.signal } : undefined);
+
+	if (Exit.isSuccess(exit)) {
+		return exit.value;
+	}
+
+	if (Cause.hasInterruptsOnly(exit.cause)) {
+		throw new Error(options.interruptMessage ?? 'Operation was aborted.');
+	}
+
+	const [first] = Cause.prettyErrors(exit.cause);
+
+	throw new Error(first?.message ?? Cause.pretty(exit.cause));
 }
 ```
 
@@ -149,25 +149,32 @@ Wire it into the extension lifecycle (lazy build, dispose on shutdown):
 ```ts
 // index.ts
 export default function (pi: ExtensionAPI) {
-  let runtime: ExtRuntime | undefined;
-  const getRuntime = () => (runtime ??= createRuntime());
+	let runtime: ExtRuntime | undefined;
 
-  pi.registerTool({
-    name: "my_tool",
-    parameters: Type.Object({/* typebox */}),
-    async execute(_id, params, signal) {
-      return await runTool(getRuntime(), myEffect(params), {
-        signal,
-        interruptMessage: "Cancelled.",
-      });
-    },
-  });
+	const getRuntime = () => (runtime ??= createRuntime());
 
-  pi.on("session_shutdown", async () => {
-    const closing = runtime;
-    runtime = undefined;
-    await closing?.dispose(); // runs all finalizers: kills scoped child processes, etc.
-  });
+	pi.registerTool({
+		name: 'my_tool',
+		parameters: Type.Object({/* typebox */}),
+		async execute(_id, params, signal) {
+			return await runTool(
+				getRuntime(),
+				myEffect(params),
+				{
+					signal,
+					interruptMessage: 'Cancelled.',
+				},
+			);
+		},
+	});
+
+	pi.on('session_shutdown', async () => {
+		const closing = runtime;
+
+		runtime = undefined;
+
+		await closing?.dispose(); // runs all finalizers: kills scoped child processes, etc.
+	});
 }
 ```
 
@@ -190,36 +197,31 @@ Mirror the subagents code. Class-style `Context.Service`, `Layer.effect`/`Layer.
 `Data.TaggedError` for domain errors.
 
 ```ts
-import { Context, Data, Effect, Layer } from "effect";
+import { Context, Data, Effect, Layer } from 'effect';
 
 // Domain error — yieldable, tag-narrowable with Effect.catchTag:
-export class GitError extends Data.TaggedError("GitError")<{
-  readonly message: string;
+export class GitError extends Data.TaggedError('GitError')<{
+	readonly message: string;
 }> {}
 
 // Service: the class value is the key AND the type.
 export interface GitShape {
-  readonly status: Effect.Effect<string, GitError>;
+	readonly status: Effect.Effect<string, GitError>;
 }
-export class Git extends Context.Service<Git, GitShape>()("gitinfo/Git") {}
+
+export class Git extends Context.Service<Git, GitShape>()('gitinfo/Git') {}
 
 // Layer building it (Layer.effect can use scoped resources; Layer.sync for pure):
-export const GitLive: Layer.Layer<Git, never, ChildProcessSpawner> =
-  Layer.effect(
-    Git,
-    Effect.gen(function* () {
-      const spawner = yield* ChildProcessSpawner; // dependency, provided by NodeServices.layer
-      return Git.of({
-        status: spawner
-          .string(ChildProcess.make("git", ["status", "--porcelain"]))
-          .pipe(
-            Effect.mapError(
-              (cause) => new GitError({ message: String(cause) }),
-            ),
-          ),
-      });
-    }),
-  );
+export const GitLive: Layer.Layer<Git, never, ChildProcessSpawner> = Layer.effect(
+	Git,
+	Effect.gen(function* () {
+		const spawner = yield* ChildProcessSpawner; // dependency, provided by NodeServices.layer
+
+		return Git.of({
+			status: spawner.string(ChildProcess.make('git', ['status', '--porcelain'])).pipe(Effect.mapError((cause) => new GitError({ message: String(cause) }))),
+		});
+	}),
+);
 ```
 
 Provide dependencies with `Layer.provide`, compose with `Layer.mergeAll` (see §2 `AppLayer`).
@@ -235,17 +237,17 @@ error; the callback receives an `AbortSignal` tied to fiber interruption — for
 SDK that accepts one so tool cancellation propagates.
 
 ```ts
-import { Data, Effect } from "effect";
+import { Data, Effect } from 'effect';
 
-class FirecrawlError extends Data.TaggedError("FirecrawlError")<{
-  readonly cause: unknown;
+class FirecrawlError extends Data.TaggedError('FirecrawlError')<{
+	readonly cause: unknown;
 }> {}
 
 const search = (client: Firecrawl, query: string) =>
-  Effect.tryPromise({
-    try: (signal) => client.search(query, {/* …, signal? if supported */}),
-    catch: (cause) => new FirecrawlError({ cause }),
-  });
+	Effect.tryPromise({
+		try: (signal) => client.search(query, {/* …, signal? if supported */}),
+		catch: (cause) => new FirecrawlError({ cause }),
+	});
 ```
 
 There's no `Layer` here unless you want the client as a service. For a single tool this is
@@ -265,15 +267,14 @@ timeout," the Effect win is `Effect.timeout` + interruption killing the child. U
 spawner service:
 
 ```ts
-import { Effect } from "effect";
-import { ChildProcess } from "effect/unstable/process";
-import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner";
+import { Effect } from 'effect';
+import { ChildProcess } from 'effect/unstable/process';
+import { ChildProcessSpawner } from 'effect/unstable/process/ChildProcessSpawner';
 
 const gitStatus = Effect.gen(function* () {
-  const spawner = yield* ChildProcessSpawner;
-  return yield* spawner
-    .string(ChildProcess.make("git", ["status", "--porcelain"], { cwd }))
-    .pipe(Effect.timeout("3 seconds")); // fails with Cause.TimeoutError (tag "TimeoutError")
+	const spawner = yield* ChildProcessSpawner;
+
+	return yield* spawner.string(ChildProcess.make('git', ['status', '--porcelain'], { cwd })).pipe(Effect.timeout('3 seconds')); // fails with Cause.TimeoutError (tag "TimeoutError")
 });
 ```
 
@@ -286,12 +287,13 @@ builder / streaming / kill semantics are in `effect-v4-notes.md §6`.
 cancels cleanly on dispose:
 
 ```ts
-import { Effect, Schedule } from "effect";
+import { Effect, Schedule } from 'effect';
 
 const pollLoop = refresh.pipe(
-  Effect.catchCause(() => Effect.void), // don't let one failure kill the loop
-  Effect.repeat(Schedule.spaced("3 seconds")),
+	Effect.catchCause(() => Effect.void), // don't let one failure kill the loop
+	Effect.repeat(Schedule.spaced('3 seconds')),
 );
+
 const fiber = runtime.runFork(pollLoop); // interrupted by runtime.dispose()
 ```
 
@@ -374,6 +376,6 @@ verify` (and `pnpm install --frozen-lockfile` to confirm the lockfile is reprodu
    in `session_shutdown` run them.
 5. **Don't over-test.** A `check` that passes plus one focused runtime test (where behavior
    is non-obvious) beats a wall of defensive unit tests.
-6. **Don't run root scripts.** No repo-root `tsc`, `prettier`, or `npm run format`; stay
-inside `extensions/<ext>`.
-</content>
+6. **Don't run root scripts.** No repo-root `tsc`, `fmtkit`, or `npm run format`; stay
+   inside `extensions/<ext>`.
+   </content>
