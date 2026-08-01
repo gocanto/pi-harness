@@ -37,3 +37,7 @@ Start Pi from `~/.pi/agent`. See [`SETUP.md`](SETUP.md) for configuration, exten
 ```sh
 pnpm run verify
 ```
+
+## License
+
+Pi Harness is released under the [MIT License](LICENSE).
