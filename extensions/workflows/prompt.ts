@@ -17,7 +17,7 @@ export const WORKFLOW_PARAMETER_DESCRIPTIONS = {
 
 /** Defines the workflow DSL, constraints, reliability guidance, and model-authored task examples. */
 export const WORKFLOW_TOOL_DESCRIPTION = [
-  "The workflow tool is only to be called when the user says 'ultracode' or specifically requests a workflow run.",
+  "The workflow tool is explicit opt-in: it only appears in your tool list once the user has enabled it (`/workflows enable`, or the PI_WORKFLOWS_ENABLED environment variable). There is no trigger phrase — call it whenever it is available and the task genuinely needs multi-agent fan-out, not for tasks a single agent can handle directly.",
   "Run a multi-agent workflow from a JavaScript orchestration script you write inline. Use this when a task benefits from fanning work out across several isolated subagents in ordered phases (research fan-out, per-file review, verify-then-synthesize pipelines).",
   "The script runs as an async function body with these primitives:",
   "• export const meta = { name, description, phases: [{ title, detail? }] } — metadata for the progress UI. Declare all phases up front.",
@@ -26,7 +26,7 @@ export const WORKFLOW_TOOL_DESCRIPTION = [
   "• await parallel([() => agent(...), () => agent(...)], { concurrency? }) — run zero-argument agent thunks concurrently and return results in order. Concurrency is globally capped at 4 for the run.",
   "• args — the parsed value of the `args` tool parameter (or undefined).",
   "Workflow JavaScript runs in a restricted, killable child with no imports, eval, timers, filesystem, network, or process APIs. A run may make at most 32 agent calls and has no overall deadline. Each agent must receive its first assistant response event within 45 seconds so silent provider requests fail clearly; after that, agent() has no wall-clock deadline. Each individual child tool call times out independently after 3 minutes, becomes an error tool result, and leaves the agent loop free to recover. Use map/filter/if/await/template strings to orchestrate, and `return` a JSON-serializable aggregate.",
-  "Pass a `schema` to agent() whenever a later step branches on the result, so you get typed fields instead of prose. There is no resume: a failed run is simply re-run. Artifacts are saved under ~/.pi/agent/workflows/<runId>/ for inspection.",
+  "Pass a `schema` to agent() whenever a later step branches on the result, so you get typed fields instead of prose. There is no resume: a failed run is simply re-run. Artifacts are saved under ~/.pi/agent/workflows/<runId>/ for inspection, kept private to the owner, and automatically removed after 14 days (active runs are never removed).",
   "Example:",
   "export const meta = { name: 'reliability-review', description: 'Review modules for reliability risks, then report', phases: [{ title: 'Scan' }, { title: 'Report' }] }",
   "const FINDINGS = { type: 'object', properties: { issues: { type: 'array', items: { type: 'string' } }, ok: { type: 'boolean' } }, required: ['issues', 'ok'] }",

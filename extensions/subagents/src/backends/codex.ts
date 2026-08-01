@@ -196,6 +196,22 @@ function supportedCodexEffort(
   return candidates[0]?.value ?? preferred;
 }
 
+/**
+ * Thread sandbox options gated by workspace trust. Headless children cannot
+ * answer approval prompts — `handleServerRequest` below auto-declines any
+ * that arrive — so `approvalPolicy` stays `"never"` either way; `sandbox` is
+ * the actual access boundary. A trusted cwd (the caller already vetted the
+ * directory — see `resolveStandaloneChildProjectTrust`) gets
+ * `danger-full-access`; an untrusted cwd gets `workspace-write`, Codex's
+ * restricted mode that confines writes to the thread's own cwd and disables
+ * network access.
+ */
+export function codexSandboxOptions(trusted: boolean) {
+  return trusted
+    ? ({ approvalPolicy: "never", sandbox: "danger-full-access" } as const)
+    : ({ approvalPolicy: "never", sandbox: "workspace-write" } as const);
+}
+
 function textInput(text: string) {
   return { type: "text", text, text_elements: [] };
 }
@@ -886,13 +902,9 @@ const makeCodexSession = (
           capabilities: { experimentalApi: true },
         });
         writeMessage({ method: "initialized" });
-        // Headless children cannot answer approval prompts. The caller
-        // already chose to launch an autonomous subagent, so give the thread
-        // full workspace access without interactive approval requests.
         return request("thread/start", {
           cwd: task.cwd,
-          approvalPolicy: "never",
-          sandbox: "danger-full-access",
+          ...codexSandboxOptions(task.parent.projectTrusted),
           ephemeral: false,
           ...(task.model ? { model: task.model } : {}),
         });

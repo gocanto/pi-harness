@@ -1,7 +1,7 @@
 # Pi Harness
 
 A practical, opinionated extension pack for [Pi Coding Agent](https://github.com/badlogic/pi-mono).
-Copy it into Pi's agent directory and get a useful coding workspace without changing Pi itself.
+Copy it into Pi's agent directory to get a useful coding workspace without changing Pi itself.
 
 ## What
 
@@ -9,7 +9,7 @@ Pi Harness adds local extensions, skills, and a theme for:
 
 - model, context, cost, Git, and changed-file visibility;
 - background terminals with bounded output and a TUI;
-- trusted subagents and bounded multi-agent workflows;
+- trusted subagents and explicit-opt-in multi-agent workflows;
 - `fd`/`rg` search, interactive questions, summaries, and clipboard-friendly output.
 
 ## Why
@@ -22,11 +22,13 @@ This is for Pi users who want a maintained, local, opinionated setup and for con
 
 ## Install
 
-Requirements: Pi Coding Agent, Node.js, and pnpm.
+Requirements: Pi Coding Agent, Node.js >=22.19.0, and pnpm >=11.17.0.
 
 ```sh
 git clone https://github.com/gocanto/pi-harness.git ~/.pi/agent
 cd ~/.pi/agent
+corepack enable
+corepack use pnpm@11.17.0
 pnpm install
 ```
 

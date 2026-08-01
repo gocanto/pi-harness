@@ -11,7 +11,10 @@
  */
 
 import type {
+  ContextUsage,
+  CreateAgentSessionOptions,
   DefaultResourceLoader,
+  SessionShutdownEvent,
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import {
@@ -98,6 +101,8 @@ export interface RunAgentOptions {
   toolCallTimeoutMs?: number;
   /** Test-only override for the first assistant response-event timeout. */
   firstResponseTimeoutMs?: number;
+  /** Test-only override for session creation; defaults to the production Pi SDK. */
+  createSession?: CreateWorkflowAgentSession;
 }
 
 /** Build a fresh extension runtime for each concurrent workflow child. */
@@ -120,6 +125,39 @@ interface WorkflowToolSession {
   getToolDefinition(name: string): ToolDefinition | undefined;
   subscribe(listener: AgentSessionEventListener): () => void;
 }
+
+/**
+ * The minimal `AgentSession` lifecycle `runAgent()` depends on: creation
+ * output, message/model/context inspection, event subscription, prompting,
+ * abort, and disposal. `Pick`s off `AgentSession`'s public method/property
+ * types instead of naming its private fields, so a plain object literal
+ * satisfies this type structurally and can stand in for a real session in
+ * tests without a cast. `extensionRunner` is narrowed to the concrete
+ * `session_shutdown` shape (mirroring `shared/child-session.ts`'s
+ * `ChildExtensionRunner`) rather than `AgentSession["extensionRunner"]`'s
+ * generic `emit`, which only a real `ExtensionRunner` can implement.
+ */
+export type WorkflowAgentSession = WorkflowToolSession &
+  Pick<
+    AgentSession,
+    | "model"
+    | "messages"
+    | "getContextUsage"
+    | "bindExtensions"
+    | "prompt"
+    | "abort"
+    | "dispose"
+  > & {
+    readonly extensionRunner: {
+      hasHandlers(eventType: string): boolean;
+      emit(event: SessionShutdownEvent): Promise<unknown>;
+    };
+  };
+
+/** Test-only seam for session creation; the production default is `createAgentSession`. */
+export type CreateWorkflowAgentSession = (
+  options: CreateAgentSessionOptions,
+) => Promise<{ session: WorkflowAgentSession }>;
 
 /** Guard current tools and tools registered by extensions at later agent starts. */
 export function guardWorkflowChildTools(
@@ -195,15 +233,28 @@ function makeStructuredOutputTool(
   });
 }
 
+/**
+ * Joined, trimmed text of an assistant message's text parts (empty when the
+ * message has none, e.g. a tool-call-only turn). Shared by the full-rescan
+ * `finalOutput()` and the incremental `IncrementalProgressTracker` so both
+ * agree on what counts as "the latest assistant output".
+ */
+function assistantText(
+  message: Extract<AgentMessage, { role: "assistant" }>,
+): string {
+  return message.content
+    .filter((part) => part.type === "text")
+    .map((part) => part.text)
+    .join("\n")
+    .trim();
+}
+
+/** Full rescan: the most recent non-empty assistant text in `messages`. */
 function finalOutput(messages: AgentMessage[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
     if (msg.role !== "assistant") continue;
-    const text = msg.content
-      .filter((part) => part.type === "text")
-      .map((part) => part.text)
-      .join("\n")
-      .trim();
+    const text = assistantText(msg);
     if (text) return text;
   }
   return "";
@@ -258,70 +309,82 @@ function toolMetadata(
   };
 }
 
-/** Convert pi messages into a compact, serializable transcript for the UI. */
-export function transcriptFromMessages(
-  messages: AgentMessage[],
-  toolTimings: ReadonlyMap<string, ToolExecutionTiming> = new Map(),
+/**
+ * Convert one already-finalized message into 0+ raw transcript entries.
+ * Shared by the full-rescan `transcriptFromMessages()` (looped over the
+ * whole history) and `IncrementalProgressTracker` (called once per newly
+ * observed message), so both agree on what a message renders as.
+ */
+function entriesForMessage(
+  message: AgentMessage,
+  toolTimings: ReadonlyMap<string, ToolExecutionTiming>,
 ): TranscriptEntry[] {
-  const entries: TranscriptEntry[] = [];
-  for (const message of messages) {
-    if (message.role === "user") {
-      const text =
-        typeof message.content === "string"
-          ? message.content
-          : message.content
-              .map((part) =>
-                part.type === "text" ? part.text : `[image: ${part.mimeType}]`,
-              )
-              .join("\n");
-      if (text.trim()) {
-        entries.push({ role: "user", text, timestamp: message.timestamp });
-      }
-      continue;
-    }
+  if (message.role === "user") {
+    const text =
+      typeof message.content === "string"
+        ? message.content
+        : message.content
+            .map((part) =>
+              part.type === "text" ? part.text : `[image: ${part.mimeType}]`,
+            )
+            .join("\n");
+    return text.trim()
+      ? [{ role: "user", text, timestamp: message.timestamp }]
+      : [];
+  }
 
-    if (message.role === "assistant") {
-      for (const part of message.content) {
-        if (part.type === "text" && part.text.trim()) {
-          entries.push({
-            role: "assistant",
-            text: part.text,
-            timestamp: message.timestamp,
-          });
-        } else if (part.type === "thinking" && part.thinking.trim()) {
-          entries.push({
-            role: "thinking",
-            text: part.thinking,
-            timestamp: message.timestamp,
-          });
-        } else if (part.type === "toolCall") {
-          entries.push({
-            role: "tool",
-            name: part.name,
-            text: safeJson(part.arguments),
-            timestamp: message.timestamp,
-            ...toolMetadata(part.id, toolTimings),
-          });
-        }
+  if (message.role === "assistant") {
+    const entries: TranscriptEntry[] = [];
+    for (const part of message.content) {
+      if (part.type === "text" && part.text.trim()) {
+        entries.push({
+          role: "assistant",
+          text: part.text,
+          timestamp: message.timestamp,
+        });
+      } else if (part.type === "thinking" && part.thinking.trim()) {
+        entries.push({
+          role: "thinking",
+          text: part.thinking,
+          timestamp: message.timestamp,
+        });
+      } else if (part.type === "toolCall") {
+        entries.push({
+          role: "tool",
+          name: part.name,
+          text: safeJson(part.arguments),
+          timestamp: message.timestamp,
+          ...toolMetadata(part.id, toolTimings),
+        });
       }
-      continue;
     }
+    return entries;
+  }
 
-    if (message.role !== "toolResult") continue;
-    const text = message.content
-      .map((part) =>
-        part.type === "text" ? part.text : `[image: ${part.mimeType}]`,
-      )
-      .join("\n");
-    entries.push({
+  if (message.role !== "toolResult") return [];
+  const text = message.content
+    .map((part) =>
+      part.type === "text" ? part.text : `[image: ${part.mimeType}]`,
+    )
+    .join("\n");
+  return [
+    {
       role: "toolResult",
       name: message.toolName,
       text,
       isError: message.isError,
       timestamp: message.timestamp,
       ...toolMetadata(message.toolCallId, toolTimings),
-    });
-  }
+    },
+  ];
+}
+
+/**
+ * Apply the transcript's count/byte bounds to a raw (unbounded) entry list:
+ * keep the first entry plus the newest ones, cap total bytes, and append a
+ * truncation marker when anything was dropped.
+ */
+function boundTranscriptEntries(entries: TranscriptEntry[]): TranscriptEntry[] {
   const selected =
     entries.length <= TRANSCRIPT_MAX_ENTRIES
       ? entries
@@ -352,20 +415,238 @@ export function transcriptFromMessages(
   return bounded;
 }
 
+/**
+ * Convert pi messages into a compact, serializable transcript for the UI.
+ * Full rescan over `messages`; used for the authoritative final transcript
+ * and as the characterization reference for `IncrementalProgressTracker`.
+ */
+export function transcriptFromMessages(
+  messages: AgentMessage[],
+  toolTimings: ReadonlyMap<string, ToolExecutionTiming> = new Map(),
+): TranscriptEntry[] {
+  const entries: TranscriptEntry[] = [];
+  for (const message of messages) {
+    entries.push(...entriesForMessage(message, toolTimings));
+  }
+  return boundTranscriptEntries(entries);
+}
+
+/**
+ * Fold one message's usage numbers (a no-op for non-assistant messages) into
+ * a running total. Shared by the full-rescan `computeUsage()` and
+ * `IncrementalProgressTracker` so both agree on what a turn contributes.
+ */
+function foldAssistantUsage(usage: AgentUsage, message: AgentMessage): void {
+  if (message.role !== "assistant") return;
+  usage.turns++;
+  const u = message.usage;
+  if (!u) return;
+  usage.input += u.input || 0;
+  usage.output += u.output || 0;
+  usage.cacheRead += u.cacheRead || 0;
+  usage.cacheWrite += u.cacheWrite || 0;
+  usage.cost += u.cost?.total || 0;
+}
+
+/** Full rescan: total usage across every assistant message in `messages`. */
 function computeUsage(messages: AgentMessage[]): AgentUsage {
   const usage = emptyUsage();
-  for (const msg of messages) {
-    if (msg.role !== "assistant") continue;
-    usage.turns++;
-    const u = msg.usage;
-    if (!u) continue;
-    usage.input += u.input || 0;
-    usage.output += u.output || 0;
-    usage.cacheRead += u.cacheRead || 0;
-    usage.cacheWrite += u.cacheWrite || 0;
-    usage.cost += u.cost?.total || 0;
-  }
+  for (const msg of messages) foldAssistantUsage(usage, msg);
   return usage;
+}
+
+/**
+ * Derive the model/stop info a single assistant message contributes: a
+ * response-matched registry model (capacity tracks the model that actually
+ * served the response, not just a configured guess) plus any stop reason or
+ * error message it carries. Empty fields mean "no update"; callers keep
+ * whatever they already had.
+ */
+function assistantSyncInfo(
+  message: Extract<AgentMessage, { role: "assistant" }>,
+  sessionModel: WorkflowModel | undefined,
+  modelRegistry: ExtensionContext["modelRegistry"],
+): {
+  modelId?: string;
+  contextWindow?: number;
+  stopReason?: string;
+  errorMessage?: string;
+} {
+  const responseMatchesSession =
+    !sessionModel ||
+    (message.provider === sessionModel.provider &&
+      message.model === sessionModel.id);
+  const reportedId = message.responseModel ?? message.model;
+  const reportedModel = responseMatchesSession
+    ? modelRegistry.find(message.provider, reportedId)
+    : undefined;
+  return {
+    ...(reportedModel
+      ? {
+          modelId: reportedModel.id,
+          contextWindow: reportedModel.contextWindow,
+        }
+      : {}),
+    ...(message.stopReason ? { stopReason: message.stopReason } : {}),
+    ...(message.errorMessage ? { errorMessage: message.errorMessage } : {}),
+  };
+}
+
+/**
+ * Incrementally maintains the onProgress-facing slice of agent state (usage,
+ * latest model/stop info, preview text, and transcript entries) from newly
+ * observed session events, instead of rescanning the full message history on
+ * every progress tick.
+ *
+ * `observeMessage()` folds one newly finalized message in work proportional
+ * to that message, not the run's history so far. `patchToolTiming()` refreshes
+ * cached tool-call/result entries in place once execution timing becomes
+ * known (it always arrives after the entry itself, since tool execution
+ * starts only after the assistant message that requested it is finalized).
+ *
+ * `rebuild()` is the explicit full-rescan escape hatch for events that
+ * replace the message history wholesale (compaction, branch replacement): it
+ * resets and refolds over the given (already-replaced) message array, using
+ * the same per-message logic as `observeMessage()`, so future incremental
+ * calls keep working against the new baseline. `runAgent()` still performs
+ * one additional authoritative full rescan (`computeUsage`/`finalOutput`/
+ * `transcriptFromMessages`) at finalization; this tracker only has to stay
+ * correct for the in-flight, human-facing progress stream.
+ */
+class IncrementalProgressTracker {
+  private _usage: AgentUsage = emptyUsage();
+  private _modelId?: string;
+  private _contextWindow?: number;
+  private _stopReason?: string;
+  private _errorMessage?: string;
+  private _preview = "";
+  private _entries: TranscriptEntry[] = [];
+  private readonly _toolEntryIndexes = new Map<string, number[]>();
+
+  constructor(modelId?: string, contextWindow?: number) {
+    this._modelId = modelId;
+    this._contextWindow = contextWindow;
+  }
+
+  get usage(): AgentUsage {
+    return this._usage;
+  }
+
+  get modelId(): string | undefined {
+    return this._modelId;
+  }
+
+  get contextWindow(): number | undefined {
+    return this._contextWindow;
+  }
+
+  get stopReason(): string | undefined {
+    return this._stopReason;
+  }
+
+  get errorMessage(): string | undefined {
+    return this._errorMessage;
+  }
+
+  get preview(): string {
+    return this._preview;
+  }
+
+  /** Bounded transcript view (same shape/limits as `transcriptFromMessages`). */
+  transcript(): TranscriptEntry[] {
+    return boundTranscriptEntries(this._entries);
+  }
+
+  /** Overlay the session's live context-window occupancy onto usage/capacity. */
+  applyContextUsage(context: ContextUsage | undefined): void {
+    if (
+      typeof context?.tokens === "number" &&
+      Number.isFinite(context.tokens) &&
+      context.tokens >= 0
+    ) {
+      this._usage.contextTokens = context.tokens;
+    }
+    if (
+      typeof context?.contextWindow === "number" &&
+      Number.isFinite(context.contextWindow) &&
+      context.contextWindow > 0
+    ) {
+      this._contextWindow = context.contextWindow;
+    }
+  }
+
+  /** Fold one newly finalized message (any role) into the running state. */
+  observeMessage(
+    message: AgentMessage,
+    sessionModel: WorkflowModel | undefined,
+    modelRegistry: ExtensionContext["modelRegistry"],
+    toolTimings: ReadonlyMap<string, ToolExecutionTiming>,
+  ): void {
+    if (message.role === "assistant") {
+      foldAssistantUsage(this._usage, message);
+      const info = assistantSyncInfo(message, sessionModel, modelRegistry);
+      if (info.modelId !== undefined) this._modelId = info.modelId;
+      if (info.contextWindow !== undefined) {
+        this._contextWindow = info.contextWindow;
+      }
+      if (info.stopReason !== undefined) this._stopReason = info.stopReason;
+      if (info.errorMessage !== undefined) {
+        this._errorMessage = info.errorMessage;
+      }
+      const text = assistantText(message);
+      if (text) this._preview = text;
+    }
+    this.appendEntries(entriesForMessage(message, toolTimings));
+  }
+
+  /** Refresh cached timing metadata for an already-recorded tool call/result pair. */
+  patchToolTiming(
+    toolCallId: string,
+    toolTimings: ReadonlyMap<string, ToolExecutionTiming>,
+  ): void {
+    const indexes = this._toolEntryIndexes.get(toolCallId);
+    if (!indexes) return;
+    const metadata = toolMetadata(toolCallId, toolTimings);
+    for (const index of indexes) {
+      const entry = this._entries[index];
+      if (entry) this._entries[index] = { ...entry, ...metadata };
+    }
+  }
+
+  private appendEntries(entries: TranscriptEntry[]): void {
+    for (const entry of entries) {
+      const index = this._entries.length;
+      this._entries.push(entry);
+      if (entry.toolCallId) {
+        const list = this._toolEntryIndexes.get(entry.toolCallId) ?? [];
+        list.push(index);
+        this._toolEntryIndexes.set(entry.toolCallId, list);
+      }
+    }
+  }
+
+  /**
+   * Reset and refold over a (possibly compacted/replaced) message array.
+   * Model/stop-reason/error fields are intentionally left as-is before the
+   * refold: a compaction summary carries no assistant message of its own, so
+   * if the new history contains none either, the prior "last observed"
+   * values remain correct, matching the full-rescan behavior of only
+   * overwriting them when a newer assistant message actually supplies one.
+   */
+  rebuild(
+    messages: AgentMessage[],
+    toolTimings: ReadonlyMap<string, ToolExecutionTiming>,
+    sessionModel: WorkflowModel | undefined,
+    modelRegistry: ExtensionContext["modelRegistry"],
+  ): void {
+    this._usage = emptyUsage();
+    this._preview = "";
+    this._entries = [];
+    this._toolEntryIndexes.clear();
+    for (const message of messages) {
+      this.observeMessage(message, sessionModel, modelRegistry, toolTimings);
+    }
+  }
 }
 
 function errorText(error: unknown): string {
@@ -433,8 +714,9 @@ export async function runAgent(
 ): Promise<AgentOutcome> {
   let structured: unknown;
   let customTools: ToolDefinition[] | undefined;
-  let session: AgentSession | undefined;
+  let session: WorkflowAgentSession | undefined;
   let unsubscribeToolTimeout: (() => void) | undefined;
+  const createSession = options.createSession ?? createAgentSession;
   try {
     customTools =
       options.schema !== undefined
@@ -444,7 +726,7 @@ export async function runAgent(
             }),
           ]
         : undefined;
-    ({ session } = await createAgentSession({
+    ({ session } = await createSession({
       cwd: options.cwd,
       ...(options.model ? { model: options.model } : {}),
       ...(options.thinkingLevel
@@ -531,27 +813,52 @@ export async function runAgent(
     }
   };
 
+  // Incremental progress state for the onProgress hot path only: it folds
+  // newly observed events in work proportional to the event, not the run's
+  // history so far. The authoritative final usage/model/transcript above
+  // still come from one full `sync()` rescan in the `finally` block below,
+  // so a subtle incremental bug here can't corrupt the returned outcome.
+  const progress = new IncrementalProgressTracker(modelId, contextWindow);
+  const applyProgressContextUsage = () => {
+    progress.applyContextUsage(childSession.getContextUsage());
+  };
+
   let markFirstResponse = () => {};
   const unsubscribe = childSession.subscribe((event) => {
     if (isAssistantResponseEvent(event)) markFirstResponse();
+    const sessionModel = childSession.model;
     if (
       event.type === "tool_execution_start" ||
       event.type === "tool_execution_end"
     ) {
       recordToolExecutionTiming(toolTimings, event);
-    } else if (
-      event.type !== "message_end" &&
-      event.type !== "compaction_end"
-    ) {
+      progress.patchToolTiming(event.toolCallId, toolTimings);
+    } else if (event.type === "message_end") {
+      progress.observeMessage(
+        event.message,
+        sessionModel,
+        options.modelRegistry,
+        toolTimings,
+      );
+    } else if (event.type === "compaction_end") {
+      // The session replaced its whole message array (summary + surviving
+      // tail); refold from scratch instead of trusting stale indexes/totals.
+      progress.rebuild(
+        childSession.messages,
+        toolTimings,
+        sessionModel,
+        options.modelRegistry,
+      );
+    } else {
       return;
     }
-    sync();
+    applyProgressContextUsage();
     options.onProgress?.({
-      preview: finalOutput(childSession.messages),
-      usage,
-      model: modelId,
-      contextWindow,
-      transcript: transcriptFromMessages(childSession.messages, toolTimings),
+      preview: progress.preview,
+      usage: progress.usage,
+      model: progress.modelId,
+      contextWindow: progress.contextWindow,
+      transcript: progress.transcript(),
     });
   });
 

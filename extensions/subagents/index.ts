@@ -33,13 +33,12 @@ import {
   DEFAULT_MAX_BYTES,
   DEFAULT_MAX_LINES,
   formatSize,
-  getAgentDir,
   getMarkdownTheme,
-  ProjectTrustStore,
   truncateHead,
 } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { resolveStandaloneChildProjectTrust } from "../shared/child-session.ts";
 import { deriveBtwTitle, isModelVisible } from "./src/by-the-way.ts";
 import {
   BACKEND_NAMES,
@@ -116,27 +115,6 @@ function truncatedOutput(
   return text;
 }
 
-/**
- * Same-directory children inherit the live parent decision. An alternate cwd
- * is trusted only when pi's persisted trust store explicitly trusts it (or a
- * containing directory); unreadable/invalid trust data fails closed.
- */
-function resolveChildProjectTrust(options: {
-  parentCwd: string;
-  childCwd: string;
-  parentTrusted: boolean;
-}) {
-  if (path.resolve(options.childCwd) === path.resolve(options.parentCwd)) {
-    return options.parentTrusted;
-  }
-  try {
-    const trustStore = new ProjectTrustStore(getAgentDir());
-    return trustStore.get(options.childCwd) === true;
-  } catch {
-    return false;
-  }
-}
-
 export default function (pi: ExtensionAPI) {
   let runtime: SubagentRuntime | undefined;
   let managerPromise: Promise<SubagentManagerShape> | undefined;
@@ -196,7 +174,11 @@ export default function (pi: ExtensionAPI) {
   };
 
   const flushResults = () => {
-    for (const snap of resultDelivery.drain()) deliverResult(snap);
+    // A result is only removed from the deferred queue once deliverResult
+    // succeeds, so a delivery failure (e.g. a transient session/runtime
+    // state) leaves it queued for the next agent_settled/idle flush instead
+    // of discarding the completed subagent's result.
+    resultDelivery.flush(deliverResult);
   };
 
   const deliverBtwResult = (snap: SubagentSnapshot) => {
@@ -305,6 +287,20 @@ export default function (pi: ExtensionAPI) {
         throw new Error(`working_dir is not a directory: ${cwd}`);
       }
 
+      // Enforce the trust boundary before the manager reserves a concurrency
+      // slot or starts a backend session: an untrusted (or merely existing)
+      // cwd must never reach a backend that grants autonomous host access.
+      const projectTrusted = resolveStandaloneChildProjectTrust({
+        parentCwd: ctx.cwd,
+        childCwd: cwd,
+        parentTrusted: ctx.isProjectTrusted(),
+      });
+      if (!projectTrusted) {
+        throw new Error(
+          `working_dir is not trusted: ${cwd}. Trust this directory in pi (or spawn inside the trusted project directory) before retrying.`,
+        );
+      }
+
       const title = params.name.trim().slice(0, 160) || "subagent";
       const snap = await runTool(
         getRuntime(),
@@ -316,11 +312,7 @@ export default function (pi: ExtensionAPI) {
           reasoningEffort: params.reasoning_effort,
           parent: {
             parentCwd: ctx.cwd,
-            projectTrusted: resolveChildProjectTrust({
-              parentCwd: ctx.cwd,
-              childCwd: cwd,
-              parentTrusted: ctx.isProjectTrusted(),
-            }),
+            projectTrusted,
             inheritedModel: ctx.model
               ? { provider: ctx.model.provider, id: ctx.model.id }
               : undefined,

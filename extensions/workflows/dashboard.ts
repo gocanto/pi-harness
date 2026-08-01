@@ -45,6 +45,7 @@ import {
   type TranscriptEntry,
   type WorkflowDetails,
 } from "./model.ts";
+import { writeFileAtomic } from "./serialization.ts";
 
 const NOTICE_TTL_MS = 4000;
 const MIN_HEIGHT = 10;
@@ -208,6 +209,21 @@ function normalizeDetails(
   };
 }
 
+/**
+ * One-shot, uncached run listing (list rendering only - never loads
+ * result/transcript artifacts). Equivalent to constructing a fresh
+ * `WorkflowRunCache` and calling `list()` once. Prefer holding onto a single
+ * `WorkflowRunCache` instance across repeated calls (as `WorkflowDashboard`
+ * does) to avoid rereading unchanged runs on every call.
+ */
+export function loadRunEntries(
+  active: Map<string, WorkflowDetails>,
+  sessionId: string,
+  referencedRunIds: ReadonlySet<string>,
+): RunEntry[] {
+  return new WorkflowRunCache().list(active, sessionId, referencedRunIds);
+}
+
 export function sessionWorkflowRunIds(ctx: ExtensionContext): Set<string> {
   const runIds = new Set<string>();
   for (const entry of ctx.sessionManager.getEntries()) {
@@ -226,82 +242,168 @@ export function sessionWorkflowRunIds(ctx: ExtensionContext): Set<string> {
   return runIds;
 }
 
-export function loadRunEntries(
-  active: Map<string, WorkflowDetails>,
-  sessionId: string,
-  referencedRunIds: ReadonlySet<string>,
-): RunEntry[] {
-  let names: string[] = [];
-  try {
-    names = fs.readdirSync(runsDir()).filter((name) => name.startsWith("wf_"));
-  } catch {
-    // No runs yet.
+interface CachedRun {
+  details: WorkflowDetails;
+  /** `workflow.json`'s mtime as of the last read into `details`. */
+  mtimeMs: number;
+  /** mtime `details` was hydrated (result/transcript artifacts loaded) at, if ever. */
+  hydratedAtMtimeMs?: number;
+}
+
+/**
+ * Live-dashboard data layer over the on-disk workflow run store.
+ *
+ * Active (in-memory) runs always read straight from the `active` map passed
+ * to `list()` - no disk I/O. Persisted runs are reread from `workflow.json`
+ * only when that file's mtime advances past the cached value: a first
+ * sighting, an external write, or a background run's next periodic
+ * checkpoint - not on every dashboard poll tick. `hydrate()` additionally
+ * defers loading `result.json`/`transcripts.json` until a run is actually
+ * selected, since list rendering never uses them; it reuses the same
+ * `workflow.json` mtime as the freshness signal for those artifacts because
+ * `persistWorkflowJson()` always writes all three files together in one
+ * checkpoint, so they can't go stale independently of it.
+ *
+ * Cache invalidation triggers:
+ *  1. a persisted run's `workflow.json` mtime advances - picked up
+ *     automatically on the next `list()`/`hydrate()` call;
+ *  2. a run disappears from disk (retention sweep) - dropped from the cache
+ *     on the next `list()`;
+ *  3. `invalidate()` - an explicit escape hatch for callers that know a
+ *     run's on-disk state changed without a corresponding mtime bump.
+ */
+export class WorkflowRunCache {
+  private readonly runs = new Map<string, CachedRun>();
+  private readonly runsDir: () => string;
+
+  /** @param runsDirOverride Test-only override for the workflow run store root; defaults to the real `~/.pi/agent/workflows`. */
+  constructor(runsDirOverride?: () => string) {
+    this.runsDir = runsDirOverride ?? runsDir;
   }
-  const entries: RunEntry[] = [];
-  for (const runId of names) {
-    const live = active.get(runId);
-    if (live) {
-      entries.push({ runId, details: live, live: true });
-      continue;
-    }
+
+  /** List every run visible to this session; live runs bypass the cache entirely. */
+  list(
+    active: Map<string, WorkflowDetails>,
+    sessionId: string,
+    referencedRunIds: ReadonlySet<string>,
+  ): RunEntry[] {
+    let names: string[] = [];
     try {
-      const raw = JSON.parse(
-        fs.readFileSync(path.join(runsDir(), runId, "workflow.json"), "utf8"),
-      );
-      const details = normalizeDetails(runId, raw);
+      names = fs
+        .readdirSync(this.runsDir())
+        .filter((name) => name.startsWith("wf_"));
+    } catch {
+      // No runs yet.
+    }
+    const seen = new Set<string>();
+    const entries: RunEntry[] = [];
+    for (const runId of names) {
+      seen.add(runId);
+      const live = active.get(runId);
+      if (live) {
+        entries.push({ runId, details: live, live: true });
+        continue;
+      }
+      const details = this.readPersisted(runId);
       if (
         details &&
         (details.sessionId === sessionId || referencedRunIds.has(runId))
       ) {
-        const runDir = path.join(runsDir(), runId);
-        if (details.resultArtifact) {
-          try {
-            details.result = JSON.parse(
-              fs.readFileSync(
-                path.join(runDir, path.basename(details.resultArtifact)),
-                "utf8",
-              ),
-            );
-          } catch {
-            // Keep the compact compatibility marker from workflow.json.
-          }
-        }
-        if (details.transcriptArtifact) {
-          try {
-            const transcripts = JSON.parse(
-              fs.readFileSync(
-                path.join(runDir, path.basename(details.transcriptArtifact)),
-                "utf8",
-              ),
-            ) as Record<string, unknown>;
-            for (const agent of details.agents) {
-              agent.transcript = normalizeTranscript(
-                transcripts[String(agent.index)],
-              );
-            }
-          } catch {
-            // Older or partially written artifacts simply lack transcripts.
-          }
-        }
-        if (details.status === "running") {
-          details.status = "aborted";
-          details.finishedAt = details.finishedAt ?? Date.now();
-          details.error =
-            details.error ?? "Recovered stale run that was not active";
-          for (const agent of details.agents) {
-            if (agent.state !== "running") continue;
-            agent.state = "error";
-            agent.error = agent.error ?? "Run ended before this agent settled";
-            agent.finishedAt = details.finishedAt;
-          }
-        }
         entries.push({ runId, details, live: false });
       }
+    }
+    // Drop runs the retention sweep already removed from disk so the cache
+    // doesn't grow unbounded across a long-lived dashboard session.
+    for (const runId of [...this.runs.keys()]) {
+      if (!seen.has(runId)) this.runs.delete(runId);
+    }
+    return entries.sort((a, b) => b.details.startedAt - a.details.startedAt);
+  }
+
+  /** Force a run to be reread on the next `list()`/`hydrate()` call. */
+  invalidate(runId?: string): void {
+    if (runId) this.runs.delete(runId);
+    else this.runs.clear();
+  }
+
+  /** Lazily load `result.json`/`transcripts.json` for a selected, non-live entry. */
+  hydrate(entry: RunEntry): void {
+    if (entry.live) return;
+    const cached = this.runs.get(entry.runId);
+    if (!cached || cached.hydratedAtMtimeMs === cached.mtimeMs) return;
+    const runDir = path.join(this.runsDir(), entry.runId);
+    const details = cached.details;
+    if (details.resultArtifact) {
+      try {
+        details.result = JSON.parse(
+          fs.readFileSync(
+            path.join(runDir, path.basename(details.resultArtifact)),
+            "utf8",
+          ),
+        );
+      } catch {
+        // Keep the compact compatibility marker from workflow.json.
+      }
+    }
+    if (details.transcriptArtifact) {
+      try {
+        const transcripts = JSON.parse(
+          fs.readFileSync(
+            path.join(runDir, path.basename(details.transcriptArtifact)),
+            "utf8",
+          ),
+        ) as Record<string, unknown>;
+        for (const agent of details.agents) {
+          agent.transcript = normalizeTranscript(
+            transcripts[String(agent.index)],
+          );
+        }
+      } catch {
+        // Older or partially written artifacts simply lack transcripts.
+      }
+    }
+    cached.hydratedAtMtimeMs = cached.mtimeMs;
+  }
+
+  /** Read (or reuse the cached read of) one run's `workflow.json`. */
+  private readPersisted(runId: string): WorkflowDetails | undefined {
+    const workflowPath = path.join(this.runsDir(), runId, "workflow.json");
+    let mtimeMs: number;
+    try {
+      mtimeMs = fs.statSync(workflowPath).mtimeMs;
     } catch {
-      // Skip unreadable runs.
+      this.runs.delete(runId);
+      return undefined;
+    }
+    const cached = this.runs.get(runId);
+    if (cached && cached.mtimeMs === mtimeMs) return cached.details;
+    try {
+      const raw = JSON.parse(fs.readFileSync(workflowPath, "utf8"));
+      const details = normalizeDetails(runId, raw);
+      if (!details) {
+        this.runs.delete(runId);
+        return undefined;
+      }
+      if (details.status === "running") {
+        details.status = "aborted";
+        details.finishedAt = details.finishedAt ?? Date.now();
+        details.error =
+          details.error ?? "Recovered stale run that was not active";
+        for (const agent of details.agents) {
+          if (agent.state !== "running") continue;
+          agent.state = "error";
+          agent.error = agent.error ?? "Run ended before this agent settled";
+          agent.finishedAt = details.finishedAt;
+        }
+      }
+      this.runs.set(runId, { details, mtimeMs });
+      return details;
+    } catch {
+      // Skip unreadable runs, but keep a previously cached read (if any)
+      // instead of dropping the run over a transient read failure.
+      return cached?.details;
     }
   }
-  return entries.sort((a, b) => b.details.startedAt - a.details.startedAt);
 }
 
 function buildReport(details: WorkflowDetails): string {
@@ -385,6 +487,7 @@ export class WorkflowDashboard {
   private sessionId: string;
   private referencedRunIds: ReadonlySet<string>;
   private close: () => void;
+  private readonly cache = new WorkflowRunCache();
 
   constructor(
     tui: TUI,
@@ -409,7 +512,7 @@ export class WorkflowDashboard {
         (e) => e.runId === initialRunId || e.runId.endsWith(initialRunId),
       );
       if (entry) {
-        this.current = entry;
+        this.selectCurrent(entry);
         this.listIndex = this.entries.indexOf(entry);
         this.view = "detail";
       }
@@ -436,7 +539,7 @@ export class WorkflowDashboard {
 
   private refresh() {
     const selected = this.entries[this.listIndex]?.runId;
-    this.entries = loadRunEntries(
+    this.entries = this.cache.list(
       this.getActive(),
       this.sessionId,
       this.referencedRunIds,
@@ -453,10 +556,19 @@ export class WorkflowDashboard {
       const refreshed = this.entries.find(
         (e) => e.runId === this.current?.runId,
       );
-      if (refreshed) this.current = refreshed;
+      // Re-hydrate in case a background run's next checkpoint advanced
+      // `workflow.json`'s mtime while it stayed selected (cheap no-op
+      // otherwise, since `hydrate()` skips already-current reads).
+      if (refreshed) this.selectCurrent(refreshed);
     }
     if (this.notice && Date.now() - this.noticeAt > NOTICE_TTL_MS)
       this.notice = undefined;
+  }
+
+  /** Select a run as `current`, lazily loading its result/transcript artifacts. */
+  private selectCurrent(entry: RunEntry) {
+    this.current = entry;
+    this.cache.hydrate(entry);
   }
 
   private groups(): PhaseGroup[] {
@@ -482,7 +594,7 @@ export class WorkflowDashboard {
     if (!entry) return;
     const target = path.join(runsDir(), entry.runId, "report.md");
     try {
-      fs.writeFileSync(target, buildReport(entry.details), "utf8");
+      writeFileAtomic(target, buildReport(entry.details));
       this.notice = `saved ${shortenHome(target)}`;
     } catch (error) {
       this.notice = `save failed: ${error instanceof Error ? error.message : String(error)}`;
@@ -513,7 +625,7 @@ export class WorkflowDashboard {
       } else if (confirm) {
         const entry = this.entries[this.listIndex];
         if (entry) {
-          this.current = entry;
+          this.selectCurrent(entry);
           this.phaseIndex = 0;
           this.agentIndex = 0;
           this.detailFocus = "phases";

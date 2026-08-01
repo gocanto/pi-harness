@@ -1,31 +1,48 @@
-# subagents — Design Plan
+# subagents — Architecture & Status
 
 A pi extension that fires off background subagents from a parent pi session, where each
 subagent can be powered by one of three backends — **pi** (in-process SDK session),
 **Claude Code** (`@anthropic-ai/claude-agent-sdk`), or **Codex** (`codex app-server`) —
 unified behind a single Effect v4 service interface.
 
-> **Status:** this document describes the original v1 plan (stubbed backends). All
-> three backends are now REAL implementations — see `src/backends/{pi,claude,codex}.ts`.
-> The stub machinery survives in `src/backends/stub.ts` for the manager test registry.
+> **Status (refreshed 2026-07-31):** all three backends are real, non-stub
+> implementations — `src/backends/pi.ts`, `src/backends/claude.ts`,
+> `src/backends/codex.ts` (roughly 575/720/1070 lines respectively). The scripted
+> `src/backends/stub.ts` machinery survives only as a fast, deterministic fixture for
+> `manager.test.ts` (see §7); it is not used at runtime. Section 1 of this document is
+> the **original v1 planning record** (kept for historical context — most of it still
+> accurately describes the shipped behavior, and any place it doesn't is called out
+> inline). Section 6 (current architecture) and §7 (tests) describe the codebase as it
+> exists today; verify any claim there against the referenced file before relying on it.
 
-**Scope of the first version:** interface design + stubbed backend internals + the v1 UI
-carried over. No real Claude/Codex process integration yet; the pi backend may also stay
-stubbed initially so the manager/UI/tool loop can be exercised end to end with zero
-external dependencies.
-
-**Location:** `~/.pi/agent/extensions/subagents/` — fully self-contained
-(no imports from `../shared` or `../subagents`; the handful of shared helpers v1 uses are
-copied in).
+**Location:** `extensions/subagents/` in this repository (a pnpm workspace member —
+see `SETUP.md` at the repo root for install/test commands). Mostly self-contained, but
+not fully isolated the way the original v1 plan intended ("no imports from `../shared`"
+— see §1): `index.ts`'s trust-boundary check imports `resolveStandaloneChildProjectTrust`
+from `../shared/child-session.ts` directly (also imported by `trust.test.ts`), and
+`src/backends/pi.ts` imports `createToolCallTimeoutGuard` from
+`../../../shared/tool-call-timeout.ts` (its own child-session logic is a ported copy of
+`shared/child-session.ts`, per that file's header comment, not an import of it).
 
 ---
 
-## 1. V1 inventory (what must be preserved)
+## 1. V1 inventory (historical planning record)
 
-Source: `~/.pi/agent/extensions/subagents/` (`index.ts`, `manager.ts`,
-`prompt.ts`, `result-delivery.ts`, `takeover.ts`) plus `../shared/` helpers.
+> Written during the original design phase, before any backend was implemented. Kept
+> for context on *why* the shapes below look the way they do. Where the shipped tool
+> surface diverged (parameter names, in particular), the divergence is noted inline;
+> otherwise treat this section as historical rather than authoritative — prefer §6.
+
+Source at the time: `extensions/subagents/` (`index.ts`, `manager.ts`, `prompt.ts`,
+`result-delivery.ts`, `takeover.ts`) plus `../shared/` helpers.
 
 ### 1.1 Tools exposed to the parent LLM
+
+> **Shipped tool parameters differ from this table** — see §6.1 for the current
+> `subagent_spawn` schema (`prompt`, `name`, `harness`, `working_dir?`, `model?`,
+> `reasoning_effort?`; no `provider` parameter, and `title`/`agent` became `name`/
+> `harness`). The behavioral description below (caps, truncation, id scheme) still
+> matches `src/manager.ts` and `index.ts`.
 
 | Tool | Parameters | Behavior |
 |---|---|---|
@@ -36,8 +53,8 @@ Source: `~/.pi/agent/extensions/subagents/` (`index.ts`, `manager.ts`,
 | `subagent_list` | — | One `describeSubagent()` line per agent: `id [status] "title" (provider/model, ctx%, elapsed, cwd)`. |
 
 Prompt metadata (all strings live in `prompt.ts`): `subagent_spawn` has a
-`promptSnippet` and two `promptGuidelines` (delegate self-contained tasks; don't block on
-`subagent_wait` unless necessary). Tool descriptions explain fire-and-forget semantics,
+`promptSnippet` and two `promptGuidelines` (delegate self-contained tasks; don't block
+on `subagent_wait` unless necessary). Tool descriptions explain fire-and-forget semantics,
 the concurrency cap, and that children can't orchestrate/see the parent conversation.
 
 ### 1.2 State tracking (v1 `SubagentManager`)
@@ -63,6 +80,10 @@ the concurrency cap, and that children can't orchestrate/see the parent conversa
   agents, `STOP_TIMEOUT_MS = 5s` bounded aborts, force-dispose fallback, idempotent
   `disposeAll()` on `session_shutdown`.
 
+This is still an accurate description of `src/manager.ts`'s behavior (see §6.4), modulo
+the pi-specific detail above now living in `src/backends/pi.ts` rather than directly in
+the manager, since the manager is backend-agnostic in the shipped design.
+
 ### 1.3 Result delivery back to the parent
 
 - When a child settles **unconsumed**, `onSettled` defers it into a tiny
@@ -76,6 +97,10 @@ the concurrency cap, and that children can't orchestrate/see the parent conversa
   Content is built by `buildSubagentResultMessage` (`Subagent sa-N "title"
   finished/failed.` + optional `Error:` line + output truncated to 24KB/600 lines with a
   pointer to the child session file for the full transcript).
+
+Still accurate; see `src/result-delivery.ts` and `index.ts`'s `deliverResult`/
+`flushResults` (§6.5). The shipped version additionally routes `origin: "btw"` results
+through a separate `deliverBtwResult` path (§6.6) that was not part of this plan.
 
 ### 1.4 UI (carried over into v2 essentially as-is)
 
@@ -113,9 +138,9 @@ the concurrency cap, and that children can't orchestrate/see the parent conversa
      result message lands), and **queued steering/follow-up messages** (`> [queued
      steer] ...`) so Enter visibly acknowledges input.
 
-**V2 requirement:** all of the above renders from a *normalized* per-subagent view
-instead of poking at `sub.session` directly — that is the main UI refactor, everything
-else ports over mostly verbatim.
+Shipped in `src/ui/takeover.ts` (dashboard + takeover view) and `src/ui/transcript.ts`
+(transcript rendering) — see §6.7. `openSubagentTakeover` (the single-agent view) is
+also reused directly by `/btw`, which this plan did not anticipate.
 
 ---
 
@@ -141,428 +166,374 @@ Common denominator all three can supply:
 - metadata: backend name, model identifier, session/log file path (pi session file,
   Claude session id + projects dir JSONL, Codex rollout path), working dir.
 
-That is exactly what the normalized event model below encodes.
+That is exactly what the normalized event model in `src/domain.ts` (§6.2) encodes; see
+§6.3 for how each backend's actual `steering`/`modelSelection`/`reasoningEffort`
+capabilities landed (they are not identical across backends — Codex does not support
+steering).
 
 ---
 
-## 3. Architecture
+## 3. Effect v4 conventions used
 
-### 3.1 Effect v4 conventions used
-
-- Single `effect` package (v4 beta). Services defined with
-  `ServiceMap.Service<T>()("id", ...)` / `ServiceMap.Key`; wiring via `Layer`;
-  `ManagedRuntime.make(layer)` at the extension edge with `runtime.runPromise(effect,
-  { signal })` inside `async execute()` tool handlers and `await runtime.dispose()` on
-  `session_shutdown`.
+- Single `effect` package (`^4.0.0-beta.99` in `package.json`; the lockfile currently
+  resolves `4.0.0-beta.102` — see §6.9). Services defined with `Context.Service<T>()`;
+  wiring via `Layer`; `ManagedRuntime.make(layer)` at the extension edge with
+  `runtime.runPromise(effect, { signal })` inside `async execute()` tool handlers and
+  `await runtime.dispose()` on `session_shutdown`.
 - `Effect.gen` generators throughout the internals. `async`/`Promise` appears **only**
-  in: tool `execute()` bodies, `pi.on(...)` handlers, the `/subagents` command handler,
-  and the imperative TUI component classes (which are callback-driven, not effectful).
-- Streams: `Stream<SubagentEvent>` per subagent, produced by backends
-  (`Stream.callback` for push-based sources like JSON-RPC notifications / SDK
-  iterables), consumed by a manager fiber per subagent.
-- Errors: tagged error classes (`Data.TaggedError`) — `SpawnError`, `BackendUnavailable`,
-  `SubagentNotFound`, `ConcurrencyLimitError`, `SendError`, `InterruptTimeout`. Tool
-  handlers map these to thrown `Error`s with the same user-facing messages v1 uses.
+  in: tool `execute()` bodies, `pi.on(...)` handlers, the `/subagents`/`/btw` command
+  handlers, and the imperative TUI component classes (which are callback-driven, not
+  effectful).
+- Streams: `Stream<SubagentEvent>` per subagent, produced by backends, consumed by a
+  manager fiber per subagent.
+- Errors: tagged error classes (`Data.TaggedError`) — `SpawnError`,
+  `BackendUnavailableError`, `ConcurrencyLimitError`, `SendError` (see `src/domain.ts`).
+  Tool handlers map these to thrown `Error`s with the same user-facing messages v1 uses.
 
-### 3.2 Domain model (`src/domain.ts`)
+See `docs/effect-v4-notes.md` and `docs/effect-v4-extension-guide.md` for the full API
+cheat sheet and toolchain notes; those two documents are maintained separately from
+this one and are out of scope for this refresh.
+
+---
+
+## 4. Domain model (`src/domain.ts`)
+
+Matches the shipped source closely enough that the original sketch below is still a
+useful summary; consult `src/domain.ts` directly for the authoritative shape (it adds
+`SubagentOrigin` (`"model" | "btw"`), `REASONING_EFFORTS`/`ReasoningEffort`, and
+`ParentContext.modelRegistry` beyond what is shown here).
 
 ```ts
 type BackendName = "pi" | "claude" | "codex";
-type SubagentStatus = "running" | "done" | "error";   // unchanged from v1
+type SubagentStatus = "running" | "done" | "error";
 
 interface SpawnTask {
-  prompt: string;
-  title: string;
-  cwd: string;
-  // Generic model hint; each backend interprets/validates it its own way.
-  model?: string;            // pi: "provider/model-id"; claude: model alias; codex: model slug
-  reasoningEffort?: string;  // pi thinking level; codex reasoning effort; claude: ignored/mapped
-  parentContext: {           // resolved by the tool layer, passed opaquely
-    parentCwd: string;
-    projectTrusted: boolean;
-    inheritedModelRef?: { provider: string; id: string };  // pi only
-    inheritedThinkingLevel?: string;
+  readonly prompt: string;
+  readonly title: string;
+  readonly cwd: string;
+  readonly model?: string;            // pi: "provider/model-id"; claude: model alias; codex: model slug
+  readonly reasoningEffort?: ReasoningEffort; // shared effort scale; each backend maps it natively
+  readonly parent: {
+    readonly parentCwd: string;
+    readonly projectTrusted: boolean;
+    readonly inheritedModel?: { readonly provider: string; readonly id: string }; // pi only
+    readonly inheritedThinkingLevel?: string;
+    readonly modelRegistry?: ModelRegistry; // required by the pi backend to resolve models
   };
 }
 
 interface SubagentMeta {
-  backend: BackendName;
-  modelLabel?: string;         // "anthropic/claude-opus-4-5", "gpt-5-codex", ...
-  contextWindow?: number;      // for utilization %, when known
-  sessionFilePath?: string;    // pi session file / claude JSONL / codex rollout path
-  nativeSessionId?: string;    // claude session id, codex conversation id
+  readonly backend: BackendName;
+  readonly modelLabel?: string;         // "anthropic/claude-opus-4-5", "gpt-5-codex", ...
+  readonly contextWindow?: number;      // for utilization %, when known
+  readonly sessionFilePath?: string;    // pi session file / claude JSONL / codex rollout path
+  readonly nativeSessionId?: string;    // claude session id, codex conversation id
 }
 ```
 
-### 3.3 Normalized event model (`src/domain.ts`)
+### 4.1 Normalized event model
 
-One discriminated union covers everything the v1 UI and manager need. Backends translate
+One discriminated union covers everything the UI and manager need. Backends translate
 their native streams into this; nothing downstream knows which backend produced it.
+See `src/domain.ts` for the exact `SubagentEvent`/`RunOutcome`/`TranscriptPart` unions —
+they match the shape below field-for-field.
 
 ```ts
 type SubagentEvent =
-  // lifecycle
-  | { _tag: "RunStarted" }                       // pi agent_start / claude init / codex turn start
-  | { _tag: "RunSettled"; outcome: RunOutcome }  // terminal per run (a session can run again via send())
-  // transcript building blocks
-  | { _tag: "UserMessage"; text: string }        // initial prompt + takeover sends, echoed by backend
+  | { _tag: "RunStarted" }
+  | { _tag: "RunSettled"; outcome: RunOutcome }
+  | { _tag: "UserMessage"; text: string }
   | { _tag: "AssistantDelta"; kind: "text" | "thinking"; delta: string }
-  | { _tag: "AssistantMessage"; parts: TranscriptPart[] }  // finalized message (replaces live buffer)
+  | { _tag: "AssistantMessage"; parts: TranscriptPart[] }
   | { _tag: "ToolStart";  toolId: string; name: string; argsPreview?: string }
   | { _tag: "ToolUpdate"; toolId: string; outputPreview?: string }
-  | { _tag: "ToolEnd";    toolId: string; isError: boolean; outputPreview?: string }
-  // bookkeeping
+  | { _tag: "ToolEnd";    toolId: string; name: string; isError: boolean; outputPreview?: string }
   | { _tag: "QueueChanged"; queued: ReadonlyArray<{ text: string; kind: "steer" | "follow-up" }> }
   | { _tag: "UsageChanged"; tokens?: number; contextWindow?: number }
-  | { _tag: "MetaChanged";  meta: Partial<SubagentMeta> }  // model switched, session file known, ...
-  | { _tag: "BackendError"; message: string };   // non-fatal diagnostics (fatal → RunSettled outcome)
+  | { _tag: "MetaChanged";  meta: Partial<SubagentMeta> }
+  | { _tag: "BackendError"; message: string };
 
 type RunOutcome =
   | { _tag: "Completed"; finalText: string }
   | { _tag: "Failed"; errorText: string; partialText?: string }
   | { _tag: "Interrupted"; partialText?: string };
-
-type TranscriptPart =
-  | { type: "text"; text: string }
-  | { type: "thinking"; text: string; redacted?: boolean }
-  | { type: "toolCall"; toolId: string; name: string; argsPreview?: string };
 ```
 
-Mapping sanity check against what the v1 UI renders:
+---
 
-| v1 render source | v2 event source |
-|---|---|
-| `sub.session.messages` (user/assistant/toolResult) | fold of `UserMessage` / `AssistantMessage` / `ToolEnd` into the snapshot transcript |
-| streaming message (`agent.state.streamingMessage`) | live buffer fed by `AssistantDelta` (cleared on `AssistantMessage`/`RunSettled`) |
-| live tool map from `tool_execution_*` | `ToolStart/Update/End` (entries drop when the finalized assistant/tool item lands, same as v1) |
-| queued steer/follow-up messages | `QueueChanged` |
-| status / errorText / settledAt | `RunStarted` / `RunSettled` |
-| model + context utilization columns | `MetaChanged` + `UsageChanged` |
-| `finalOutput` / `latestOutput` for check/wait/result delivery | `RunOutcome.finalText` (+ live buffer for `latestOutput`) |
+## 5. The `SubagentBackend` service (`src/backend.ts`)
 
-Previews (`argsPreview`, `outputPreview`) are pre-flattened single-line strings because
-the UI only ever shows one sanitized line — this avoids leaking three different native
-"tool result" shapes through the interface.
-
-### 3.4 The `SubagentBackend` service (`src/backend.ts`)
-
-One interface; three implementations; a registry keyed by `BackendName`.
+One interface; three implementations (`src/backends/{pi,claude,codex}.ts`); a registry
+keyed by `BackendName` (`src/runtime.ts`'s `BackendRegistryLive`).
 
 ```ts
 interface SubagentBackend {
   readonly name: BackendName;
-  readonly capabilities: {
-    steering: boolean;         // can send() into a live run (all three eventually; stubs: true)
-    modelSelection: boolean;
-    reasoningEffort: boolean;
-  };
-  /** Probe availability (binary on PATH, SDK importable, API key). Cheap + cached. */
-  readonly available: Effect.Effect<boolean>;
-  /**
-   * Spawn a session. Scoped: releasing the scope interrupts/kills the underlying
-   * session/process. Returns a live handle immediately (fire-and-forget semantics
-   * live in the manager, not here).
-   */
+  readonly capabilities: { steering: boolean; modelSelection: boolean; reasoningEffort: boolean };
+  readonly available: Effect.Effect<boolean>; // probe binary/SDK/credentials, cheap
   spawn(task: SpawnTask): Effect.Effect<SubagentSession, SpawnError, Scope.Scope>;
 }
 
 interface SubagentSession {
-  readonly meta: Effect.Effect<SubagentMeta>;                 // snapshot; also updated via MetaChanged
-  /** All activity. Single consumer (the manager). Ends after the final RunSettled on close. */
-  readonly events: Stream.Stream<SubagentEvent, never>;
-  /** Steer while running, or start a fresh run when idle (v1 `manager.send` semantics). */
+  readonly meta: Effect.Effect<SubagentMeta>;
+  readonly events: Stream.Stream<SubagentEvent>;
   send(text: string): Effect.Effect<void, SendError>;
-  /** Interrupt the active run; resolves when the backend acknowledges. Bounded by the caller. */
   readonly interrupt: Effect.Effect<void>;
-  /** Resolves with the outcome of the most recent run (mirrors the last RunSettled). */
-  readonly awaitSettled: Effect.Effect<RunOutcome>;
 }
-
-// Registry: a plain ServiceMap.Key holding a ReadonlyMap<BackendName, SubagentBackend>,
-// built by a Layer that collects the three backend layers. Adding a 4th backend = one
-// new file + one line in the registry layer.
-class BackendRegistry extends ServiceMap.Key<BackendRegistry,
-  ReadonlyMap<BackendName, SubagentBackend>>()("subagents/BackendRegistry") {}
 ```
 
-Design choices worth calling out:
+Design choices that carried through as-built:
 
 - **`spawn` is scoped, not paired with an explicit `dispose`.** The manager opens one
-  `Scope` per subagent and closes it on cancel/prune/disposeAll — this replaces v1's
-  `shutdownAndDisposeChildSession` + WeakMap-idempotence machinery with Effect's own
-  guaranteed-once finalization. Timeout-bounded teardown (`5s`, then force) is a
-  finalizer concern inside each backend.
-- **`send` unifies steer/new-run.** v1's `manager.send` already had these semantics; the
-  interface keeps the decision inside the backend because "is a run active" is
-  backend-native state.
+  `Scope` per subagent and closes it on cancel/prune/disposeAll.
+- **`send` unifies steer/new-run.** The interface keeps the decision inside the backend
+  because "is a run active" is backend-native state.
 - **Events, not message arrays, are the contract.** The manager folds events into
-  snapshots; backends never expose native message types. The pi backend has the richest
-  native data and simply down-converts.
-- **No `exec()` one-shot operation in v1 of this extension** — see Open Questions; the
-  interface deliberately leaves room to add `exec(task): Effect<RunOutcome>` later
-  without touching the manager.
-
-### 3.5 `SubagentManager` service (`src/manager.ts`)
-
-Owns the registry of running/finished subagents. Effect service; internally a `Ref` (or
-plain mutable map guarded by the single-threaded JS model) of entries plus a
-**synchronous read model** for the TUI.
-
-```ts
-interface SubagentEntry {
-  id: string;                    // "sa-N", same scheme as v1
-  backend: BackendName;
-  title: string; prompt: string; cwd: string;
-  scope: Scope.Closeable;        // owns the SubagentSession
-  session: SubagentSession;
-  eventPump: Fiber.Fiber<void>;  // folds events → snapshot, fires settle hooks
-}
-
-interface SubagentSnapshot {      // what the UI and tools read; plain immutable data
-  id: string; backend: BackendName; title: string; cwd: string;
-  status: SubagentStatus;
-  createdAt: number; settledAt?: number;
-  errorText?: string;
-  meta: SubagentMeta;
-  usage: { tokens?: number; contextWindow?: number };
-  transcript: ReadonlyArray<TranscriptItem>;    // finalized items
-  liveAssistant?: { text: string; thinking: string };
-  liveTools: ReadonlyArray<LiveToolState>;      // v1's LiveToolEvent, verbatim
-  queued: ReadonlyArray<{ text: string; kind: "steer" | "follow-up" }>;
-  finalText: string;             // last Completed finalText (v1 finalOutput)
-  latestText: string;            // finalText or live buffer (v1 latestOutput)
-  turns: number;                 // count of AssistantMessage events (for subagent_check)
-}
-
-class SubagentManager extends ServiceMap.Key<SubagentManager, {
-  spawn(backend: BackendName, task: SpawnTask):
-    Effect.Effect<SubagentSnapshot, SpawnError | ConcurrencyLimitError | BackendUnavailable>;
-  waitFor(ids: string[], onPending?: (pending: string[]) => void):
-    Effect.Effect<void, SubagentNotFound>;      // interruption = tool signal abort
-  cancel(ids: string[]): Effect.Effect<CancelReport, SubagentNotFound>;
-  send(id: string, text: string): Effect.Effect<void, SubagentNotFound | SendError>;
-  get(id: string): Effect.Effect<SubagentSnapshot | undefined>;
-  list: Effect.Effect<ReadonlyArray<SubagentSnapshot>>;
-  disposeAll: Effect.Effect<void>;
-  /** Synchronous read model for the TUI (see 3.6). */
-  readonly view: SubagentReadModel;
-}>()("subagents/SubagentManager") {}
-```
-
-Behavior preserved from v1, expressed in Effect terms:
-
-- **Concurrency cap**: `MAX_RUNNING = 4` enforced with a synchronous
-  reserve-before-first-yield counter (same race-avoidance rationale as v1); the cap
-  counts *running* agents across all backends (see Open Questions for per-backend caps).
-- **Settlement**: the per-subagent event pump fiber updates the snapshot on every event;
-  on `RunSettled` it computes `status`/`errorText` (bounded to 4096 chars) and invokes
-  the settle hook with `consumed = waitInterest > 0`. `waitFor` keeps the same
-  wait-interest refcounts (a `Ref<Map<string, number>>`) and wakes on snapshot changes
-  (a `Latch`/`PubSub`-based "next change" primitive replacing v1's resolver array).
-- **Cancel**: mark consumed → `session.interrupt` with 5s bound → close scope on
-  timeout → wait for settle. Same "already \<status\>" reporting.
-- **Pruning**: `MAX_TRACKED = 64`, oldest settled non-wait-interested entries pruned by
-  closing their scopes; cleanup tracked so `disposeAll` can await it.
-- **Settle → result delivery hook**: the manager exposes `onSettled` wiring identical in
-  spirit to v1: the extension layer registers a callback that defers into the
-  `result-delivery` buffer and flushes on parent idle / `agent_settled`. The
-  `createDeferredResultDelivery` module is copied over unchanged (it is pure and already
-  has a test).
-
-### 3.6 Synchronous read model for the TUI (`src/read-model.ts`)
-
-The TUI components (`Component` classes with `render(width)`/`handleInput(data)`) are
-imperative and render synchronously — they cannot `yield*` effects. Bridge:
-
-```ts
-interface SubagentReadModel {
-  list(): ReadonlyArray<SubagentSnapshot>;         // sync snapshot reads
-  get(id: string): SubagentSnapshot | undefined;
-  subscribe(listener: () => void): () => void;     // any-change notification (dashboard, footer)
-  subscribeTo(id: string, l: () => void): () => void; // per-agent (takeover view)
-  // sync fire-and-forget commands, executed via the ManagedRuntime under the hood:
-  requestSend(id: string, text: string): void;     // TakeoverView input submit
-  requestAbort(id: string): void;                  // dashboard `x`, takeover app.clear
-}
-```
-
-The manager's event pump writes each new snapshot into this store (plain mutable map +
-listener set) as its last step, so the UI is always at most one microtask behind the
-Effect world and v1's dashboard/takeover code ports with only these substitutions:
-
-| v1 | v2 |
-|---|---|
-| `manager.list()` / `manager.get(id)` | `view.list()` / `view.get(id)` |
-| `manager.addChangeListener` | `view.subscribe` |
-| `sub.session.subscribe(handleSessionEvent)` + local live-tool map | `view.subscribeTo(id, ...)` + read `snapshot.liveTools` / `liveAssistant` (the fold moved into the manager) |
-| `manager.send(sub, text)` / `manager.abort(sub)` | `view.requestSend(id, text)` / `view.requestAbort(id)` |
-| `buildTranscriptLines(sub, ...)` reading `session.messages` | `buildTranscriptLines(snapshot, ...)` reading `snapshot.transcript` + live state + `snapshot.queued` |
-
-Keybindings, layout math, scroll behavior, 1Hz ticker, 50ms render throttle, sanitize
-logic: copied as-is.
-
-### 3.7 Extension edge (`index.ts` + `src/runtime.ts`)
-
-```
-Layer graph:
-  PiBackendStub.layer      ─┐
-  ClaudeBackendStub.layer  ─┼→ BackendRegistry.layer ─→ SubagentManager.layer ─→ AppLayer
-  CodexBackendStub.layer   ─┘
-```
-
-- `const runtime = ManagedRuntime.make(AppLayer)` — created lazily on first use (per the
-  extension-docs guidance to not start background resources in the factory;
-  `ManagedRuntime` builds its layer on first run, which satisfies this, but we still
-  gate creation behind `session_start`). `session_shutdown`: `runtime.runPromise(
-  manager.disposeAll)` then `await runtime.dispose()`, then recreate on the next
-  `session_start` (handles `/new`, `/resume`, `/reload`).
-- **Tool handlers are the async boundary.** Each `execute(toolCallId, params, signal,
-  onUpdate, ctx)` builds one `Effect.gen` program and runs it with
-  `runtime.runPromise(program, { signal })`; tool-visible errors are converted from
-  tagged errors to `Error` messages matching v1 wording. `onUpdate` and `ctx`
-  (model registry, cwd, trust) are captured into the program as plain values/callbacks.
-- **Tool schema change:** `subagent_spawn` gains
-  `agent: StringEnum(["pi", "claude", "codex"])` (optional, default `"pi"`), and
-  `model`/`provider`/`reasoning_effort` keep their v1 shapes but are documented as
-  backend-interpreted (pi validates against the registry; claude/codex validate against
-  their own known-model rules — stubs accept anything). `describeSubagent` lines and the
-  dashboard gain the backend name (e.g. `sa-3 [running] "title" (codex, gpt-5-codex,
-  41%/272k, 1m32s, /repo)`).
-- `pi.registerMessageRenderer("subagent-result", ...)`, `pi.registerCommand(
-  "subagents", ...)`, footer status updates, and the result-delivery flush hooks
-  (`agent_settled`, idle-check on settle) are wired exactly like v1 — these all live
-  outside the runtime and call into it only via `runPromise`/the read model.
-
-### 3.8 What the stubs do (v1 of this extension)
-
-All three backends share a `createStubSession(profile)` helper (`src/backends/stub.ts`)
-that fakes a plausible session so the manager, tools, result delivery, and both TUI
-views are exercised end to end:
-
-- **spawn**: emits `MetaChanged` (backend-flavored model label + fake session file path
-  under `os.tmpdir()`, e.g. `.../subagents-stub/sa-1.jsonl`, actually written with the
-  transcript so "full transcript in session file" pointers resolve), then `RunStarted`,
-  then a scripted turn: 2–3 `AssistantDelta` batches on a timer (~200ms cadence so
-  streaming is visible), one fake `ToolStart/Update/End` cycle (`bash` with an args
-  preview), `UsageChanged` ramping tokens, a final `AssistantMessage`, and `RunSettled`
-  with `Completed` — final text echoes the task: `"[stub:claude] completed: <first 200
-  chars of prompt>"`. Total runtime ~3–6s (configurable per profile) so `subagent_wait`,
-  the footer counters, and the dashboard's running→done transition are observable.
-- **send**: emits `UserMessage` + `QueueChanged` (briefly, to exercise the queued-line
-  rendering) and runs another scripted turn — so takeover steering works.
-- **interrupt**: stops the script timer and settles with `Interrupted` (→ status
-  `error`, errorText `"Run was aborted"`, matching v1) — so `subagent_cancel` and the
-  `x`/`app.clear` keybindings work.
-- **failure path**: a magic prompt prefix (e.g. `FAIL:`) makes the run settle with
-  `Failed` — so error rendering, `errorText` rows, and failed result delivery are
-  testable without real backends.
-- **Backend differentiation**: per-backend profiles vary the model label
-  (`anthropic/claude-opus-4-5` vs `claude-sonnet-4-5` vs `gpt-5-codex`), fake context
-  window, tool names, and delta cadence — enough to verify the UI treats backends
-  uniformly. `available` returns `true` for stubs (real impls will probe binaries/SDK).
-- The **pi stub** can later be swapped for the real in-process SDK implementation by
-  porting v1's `manager.ts` session code behind the same `SubagentSession` shape; that
-  port is the first post-stub milestone.
+  snapshots; backends never expose native message types.
 
 ---
 
-## 4. File/module layout
+## 6. Current architecture (verified against `src/`, 2026-07-31)
+
+### 6.1 Tool surface (`index.ts`, `src/prompt.ts`)
+
+| Tool | Parameters | Notes |
+|---|---|---|
+| `subagent_spawn` | `prompt`, `name`, `harness` (`"pi" \| "claude" \| "codex"`, required), `working_dir?`, `model?`, `reasoning_effort?` (`REASONING_EFFORTS` enum) | `name` is truncated to 160 chars for the title. `working_dir` resolves against `ctx.cwd` and is validated (`fs.existsSync` + `isDirectory()`), then checked against `resolveStandaloneChildProjectTrust` **before** the manager reserves a concurrency slot — an untrusted cwd is rejected outright, never reaching a backend. |
+| `subagent_wait` | `ids[]` (max 64) | Same budgets as the historical record (§1.1): 48KB total / 16KB per agent, consumes deferred results for the waited ids. |
+| `subagent_cancel` | `ids[]` | Unchanged from §1.1. |
+| `subagent_check` | `id` | Filters out `origin: "btw"` subagents via `isModelVisible` (§6.6) — the model cannot see or touch `/btw` asides through these tools. |
+| `subagent_list` | — | Same filter as above. |
+
+There is no `provider`/`agent` split parameter as sketched in §1.1 — the shipped schema
+uses `harness` for the backend selector and folds "provider" into the free-form `model`
+string, interpreted per backend (see `resolvePiModel` in `src/backends/pi.ts`).
+
+### 6.2 Trust and permission model
+
+Confirmed in `extensions/shared/child-session.ts`,
+`extensions/subagents/permission-policy.test.ts`, and the backends:
+
+- `resolveStandaloneChildProjectTrust` (shared with the pi backend's child sessions):
+  a subagent spawned in the **same cwd** as the parent inherits the parent's live trust
+  decision; a **different cwd** is trusted only if pi's persisted trust store explicitly
+  trusts it (or a containing directory) — unreadable/invalid trust data fails closed.
+- `claudePermissionOptions(trusted)` (`src/backends/claude.ts`): a trusted cwd gets
+  `{ permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true }`; an
+  untrusted cwd gets `{ permissionMode: "dontAsk", settingSources: ["user"] }` — never
+  `bypassPermissions`.
+- `codexSandboxOptions(trusted)` (`src/backends/codex.ts`): a trusted cwd gets
+  `{ approvalPolicy: "never", sandbox: "danger-full-access" }`; an untrusted cwd gets
+  `{ approvalPolicy: "never", sandbox: "workspace-write" }` — never
+  `danger-full-access`. `approvalPolicy` is always `"never"` because headless children
+  cannot answer an interactive prompt either way.
+- These two option builders are pure and covered by
+  `extensions/subagents/permission-policy.test.ts` without touching a live SDK/process.
+
+### 6.3 Backend capability matrix (`src/backends/*.ts`)
+
+| Backend | `steering` | `modelSelection` | `reasoningEffort` | `available` probe |
+|---|---|---|---|---|
+| pi | `true` | `true` | `true` | requires `task.parent.modelRegistry` (thrown `SpawnError` otherwise) |
+| claude | `true` | `true` | `true` | resolves the `claude` CLI on `PATH` (`resolveClaudeBinary`) |
+| codex | `false` | `true` | `true` | resolves the `codex` binary on `PATH` |
+
+For the full cross-harness matrix (cancellation semantics, persistence, output
+budgets, security implications, cost/latency, and a bounded implementation
+backlog — Plan 018), see `docs/capability-matrix.md`. This table stays as the
+quick at-a-glance summary; that document is the authoritative, evidence-cited
+version.
+
+Model defaults when `model` is omitted: pi resolves against the parent's
+`ModelRegistry` and inherits the parent's model/thinking level (`resolvePiModel`);
+Claude and Codex simply omit the `model` option from the SDK/CLI call and let that
+tool's own default apply — no extension-level default-model config block was added.
+
+### 6.4 `SubagentManager` (`src/manager.ts`)
+
+One `Context.Service` (`"subagents/SubagentManager"`) wrapping a `Map<string, Entry>`
+plus the synchronous `SubagentReadModel` bridge for the TUI — there is no separate
+`src/read-model.ts` file; the read model is implemented inline at the bottom of
+`manager.ts` (`view: SubagentReadModel`), unlike the split sketched in the original
+plan (§1.2, §6.8 file layout below).
+
+- **Concurrency cap:** `MAX_RUNNING = 4`, enforced with a synchronous `reserved++`
+  inside `Effect.suspend` before the first yield, so parallel tool calls cannot race
+  past it. The cap is **global across all three backends** (not per-backend).
+  Restarting a settled subagent via `send()` re-occupies a running slot and is subject
+  to the same cap.
+- **Pruning:** `MAX_TRACKED = 64`; oldest settled, non-wait-interested entries are
+  pruned (scope closed) once the map exceeds that size.
+- **Settlement:** the per-subagent event pump folds `SubagentEvent`s into a mutable
+  snapshot; `RunSettled` computes `status`/`errorText` (bounded to 4096 chars) and
+  invokes the `onSettled` hook with `consumed = waitInterest > 0`.
+- **Cancel:** marks consumed → `session.interrupt` bounded to 5s → force-closes the
+  scope on timeout → waits for settle. Reports `Cancelled ...` / `was already <status>`.
+- **Transcript/text bounds:** transcript capped at 512 items; per-item text at 64KB;
+  live-assistant buffer at 128KB; final text at 1MB — all in `manager.ts`'s constants.
+- **Shutdown:** `disposeAll` closes every entry's scope (bounded 5s each, unbounded
+  concurrency) and is also wired as an `Effect.addFinalizer`, so disposing the
+  `ManagedRuntime` tears everything down even if the extension forgets to call it
+  explicitly.
+
+### 6.5 Persistence and lifecycle
+
+Confirmed unchanged from the v1 decision (§1.2, resolving open question 10 below):
+subagents (pi, Claude, and Codex children alike) do **not** survive a session
+transition. `index.ts`'s `session_shutdown` handler clears the deferred-result queue,
+unsubscribes the status listener, and `await`s `runtime.dispose()`, which runs the
+manager's `disposeAll` finalizer and closes every subagent's scope (interrupting the
+in-process pi session, or killing the Claude/Codex child process). There is no
+reattach-after-reload path.
+
+### 6.6 Result delivery and the `/btw` ("by the way") feature
+
+`src/result-delivery.ts` is unchanged from §1.3. `index.ts` additionally introduces an
+`origin` field (`"model" | "btw"`, `src/domain.ts` `SubagentOrigin`) not present in the
+original plan:
+
+- `origin: "model"` subagents (spawned via `subagent_spawn`) flow through the deferred
+  delivery queue described in §1.3 and are visible to the `subagent_*` tools.
+- `origin: "btw"` subagents are spawned by the `/btw` command (`runByTheWay` in
+  `index.ts`) for one-off user asides that run alongside the main agent. Their results
+  are delivered via `pi.appendEntry("btw-result", ...)` (a synchronous session-log
+  entry, never entering the model's context or follow-up queue) instead of
+  `pi.sendMessage`, and `src/by-the-way.ts`'s `isModelVisible()` hides them from
+  `subagent_check`/`subagent_list`/`subagent_wait`/`subagent_cancel` entirely. `/btw`
+  always spawns on the `pi` backend and reuses `openSubagentTakeover` for its
+  single-agent view.
+
+### 6.7 UI
+
+`src/ui/takeover.ts` (dashboard + takeover view) and `src/ui/transcript.ts` (sanitize +
+`buildTranscriptLines`) implement §1.4 as described, plus the `/btw` reuse noted above.
+`src/format.ts` holds the elapsed/context-utilization/activity-status formatting
+helpers referenced by both the tools and the UI.
+
+### 6.8 File/module layout (as shipped)
 
 ```
-~/.pi/agent/extensions/subagents/
-├── package.json               # name, "effect": "^4.0.0-beta.x"; pi extension entry via pi.extensions
-├── package-lock.json / node_modules/   (after npm install)
+extensions/subagents/
+├── package.json                 # "effect": "^4.0.0-beta.99", "@anthropic-ai/claude-agent-sdk": "^0.3.216"
+├── tsconfig.json
 ├── docs/
-│   └── design-plan.md         # this document
-├── index.ts                   # extension factory: runtime lifecycle, 5 tools, /subagents
-│                              # command, message renderer, footer status, result flush hooks
+│   ├── design-plan.md            # this document
+│   ├── effect-v4-notes.md        # Effect v4 API cheat sheet (maintained separately)
+│   └── effect-v4-extension-guide.md  # toolchain + ManagedRuntime boundary notes
+├── index.ts                      # extension factory: runtime lifecycle, 5 tools, /subagents, /btw
+├── *.test.ts                     # manager, result-delivery, takeover, by-the-way, trust,
+│                                  # permission-policy, context-usage (deterministic, in `pnpm test`);
+│                                  # claude.test.ts / codex.test.ts (live provider tests, §7)
 └── src/
-    ├── domain.ts              # BackendName, SubagentStatus, SpawnTask, SubagentEvent,
-    │                          # RunOutcome, TranscriptItem/Part, SubagentSnapshot, tagged errors
-    ├── backend.ts             # SubagentBackend + SubagentSession interfaces, BackendRegistry
-    │                          # key + registry layer
+    ├── domain.ts                 # BackendName, SpawnTask, SubagentEvent, RunOutcome, tagged errors
+    ├── backend.ts                # SubagentBackend + SubagentSession interfaces, BackendRegistry key
     ├── backends/
-    │   ├── stub.ts            # shared scripted fake-session machinery
-    │   ├── pi.ts              # PiBackend layer (v1: stub profile; later: real pi SDK sessions)
-    │   ├── claude.ts          # ClaudeBackend layer (v1: stub; later: @anthropic-ai/claude-agent-sdk)
-    │   └── codex.ts           # CodexBackend layer (v1: stub; later: codex app-server JSON-RPC)
-    ├── manager.ts             # SubagentManager service + layer: registry, cap, waitFor,
-    │                          # cancel, prune, settle hook, event-fold into snapshots
-    ├── read-model.ts          # sync SubagentReadModel bridge for the TUI
-    ├── runtime.ts             # AppLayer composition + ManagedRuntime create/dispose helpers
-    ├── result-delivery.ts     # deferred delivery buffer (copied from v1, unchanged)
-    ├── result-delivery.test.ts
-    ├── prompt.ts              # all model-facing strings (v1 copy + `agent` param description)
-    ├── format.ts              # elapsed/context-utilization/activity-status formatting
-    │                          # (merged copies of ../shared/{context-utilization,activity-status}.ts)
+    │   ├── stub.ts                # scripted fake-session backend, used only by manager.test.ts
+    │   ├── pi.ts                  # real in-process pi SDK sessions
+    │   ├── claude.ts               # real @anthropic-ai/claude-agent-sdk integration
+    │   └── codex.ts                 # real codex app-server JSON-RPC integration
+    ├── manager.ts                 # SubagentManager service/layer + inline SubagentReadModel
+    ├── runtime.ts                 # AppLayer composition + ManagedRuntime create/dispose + runTool
+    ├── result-delivery.ts         # deferred delivery buffer
+    ├── by-the-way.ts               # /btw title derivation + isModelVisible origin filter
+    ├── prompt.ts                   # all model-facing strings
+    ├── format.ts                   # elapsed/context-utilization/activity-status formatting
     └── ui/
-        ├── transcript.ts      # sanitize + buildTranscriptLines over SubagentSnapshot
-        └── takeover.ts        # SubagentDashboard + TakeoverView + openSubagentPicker (ported)
+        ├── transcript.ts            # sanitize + buildTranscriptLines
+        └── takeover.ts               # SubagentDashboard + TakeoverView + openSubagentPicker/Takeover
 ```
 
-Notes:
-- `package.json` is needed because `effect` is an npm dependency (extension-with-deps
-  style from the extension docs). Everything else avoids new dependencies.
-- v1's `child-session.ts` trust/tool-policy helpers are **not** copied in v1 of v2 (the
-  stubs don't need them); the real pi backend will bring the needed subset into
-  `backends/pi.ts` when implemented. The `resolveStandaloneChildProjectTrust` logic *is*
-  still referenced by the design (SpawnTask.parentContext.projectTrusted) so the tool
-  layer computes trust the same way v1 does.
-- Suggested project scripts (per house rules, to be added): `check` (`tsc --noEmit`),
-  `test` (`node --test` or vitest for `result-delivery` + manager fold tests against
-  stub backends).
+There is no `src/read-model.ts` (merged into `manager.ts`, §6.4) and no
+`result-delivery.test.ts`-adjacent `read-model.test.ts` — behavior is covered through
+`manager.test.ts`'s end-to-end assertions instead.
+
+### 6.9 Dependencies and versions
+
+From `extensions/subagents/package.json` (source of truth — do not hardcode a version
+number anywhere else in this doc set):
+
+```json
+{
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.216",
+    "effect": "^4.0.0-beta.99"
+  },
+  "devDependencies": {
+    "@effect/tsgo": "^0.24.2",
+    "typescript": "^7.0.2"
+  }
+}
+```
+
+The repo-root `pnpm-lock.yaml` currently resolves `effect` to `4.0.0-beta.102` and
+`@anthropic-ai/claude-agent-sdk` to `0.3.220` — both satisfy the caret ranges above.
+This resolves open question 9 below: the caret range is tracked and bumped via the
+lockfile rather than pinned to an exact beta build.
 
 ---
 
-## 5. Migration/coexistence note
+## 7. Tests and commands
 
-v1 and v2 register the same tool names (`subagent_spawn`, ...) and the same
-`/subagents` command. While both live in `~/.pi/agent/extensions/`, pi will suffix
-duplicate commands (`/subagents:1`, `/subagents:2`) and both tool sets would be
-registered. During development, either (a) v2 uses temporary names
-(`subagent2_spawn`, `/subagents2`), or (b) v1 is moved out of the auto-discovery dir.
-Recommendation: (a) during development, rename to final names when v2 replaces v1.
+Run from the repository root (a pnpm workspace — see `SETUP.md`):
+
+```sh
+pnpm install   # first time / after a dependency or script change
+pnpm test      # deterministic suite for every extension, including this one
+pnpm test:live # extension-specific: extensions/subagents' claude.test.ts + codex.test.ts
+```
+
+- `pnpm test` runs this extension's `manager.test.ts`, `result-delivery.test.ts`,
+  `context-usage.test.ts`, `takeover.test.ts`, `by-the-way.test.ts`, `trust.test.ts`,
+  and `permission-policy.test.ts` (all deterministic, no external processes or
+  credentials required — the manager tests use `src/backends/stub.ts`).
+- `pnpm test:live` runs `claude.test.ts` and `codex.test.ts`, which spawn real Claude
+  Code / Codex sessions and are skipped individually when the corresponding CLI is not
+  installed/authenticated locally. These are excluded from `pnpm test` on purpose (per
+  `plans/001-separate-live-provider-tests.md`).
+- `pnpm run check` (repo root `tsc --noEmit`) and `pnpm run format:check` (prettier)
+  should both stay green; there is no extension-local `npm install`/`npm run check`
+  step — this package is a member of the root pnpm workspace, not an independently
+  installed extension.
 
 ---
 
-## 6. Open questions (need user input)
+## 8. Open questions from the original plan — resolved status
 
-1. **Per-backend spawn options.** v1's `model`/`provider`/`reasoning_effort` are
-   pi-shaped. Options: (a) keep one generic `model` string + `reasoning_effort` that
-   each backend interprets (proposed above — simplest for the LLM); (b) add a
-   `backend_options` free-form object; (c) per-backend defaults in a config file with no
-   per-spawn override. Which surface do you want the parent LLM to have?
-2. **One-shot exec mode.** Should the interface expose a separate cheap
-   `exec(task): Effect<RunOutcome>` (mapping to `codex exec` / `claude -p
-   --output-format json` / a fresh in-memory pi session), or is one interactive-session
-   path enough? Exec would forfeit takeover/steering for that subagent — is a
-   `mode: "session" | "exec"` spawn parameter desirable, or backend-internal
-   optimization only?
-3. **Permissions/sandboxing for Claude/Codex children.** Subagents are headless, so
-   interactive permission prompts are impossible. Do we run Claude with
-   `bypassPermissions`/`--dangerously-skip-permissions` and Codex with
-   `--full-auto`-style sandbox + never-ask approval policy? Should this be a global
-   extension setting, per-spawn, or hardcoded? (Pi children inherit v1's trust-store
-   logic — keep that as-is?)
-4. **Concurrency cap scope.** Keep one global `MAX_RUNNING = 4`, or per-backend caps
-   (e.g. 4 pi + 2 claude + 2 codex)? Global is proposed as default.
-5. **Steering support parity in real backends.** Codex steering means
-   interrupt-then-new-turn or queued `sendUserTurn`; Claude requires streaming-input
-   mode from the start. OK to declare `capabilities.steering` and have the TakeoverView
-   input show "(steering not supported)" if a backend can't, or is steering a hard
-   requirement for all three?
-6. **Model/thinking inheritance across backends.** When `agent: "claude"` and no model
-   given, what's the default (e.g. always `opus`/`sonnet`)? Inheriting the parent pi
-   model is meaningless cross-backend. Proposal: per-backend default model in a small
-   config block; confirm.
-7. **Binary/SDK discovery + failure UX.** When `codex`/`claude` isn't installed or has
-   no credentials, should `subagent_spawn` fail fast with a clear tool error (proposed),
-   or should the backends be hidden from the `agent` enum dynamically?
-8. **Result truncation budgets.** Keep v1's numbers (24KB result message, 48KB wait
-   total, 16KB per agent, 2KB check preview) unchanged?
-9. **Effect version pinning.** Effect v4 is beta — pin an exact `4.0.0-beta.x` and
-   accept manual bumps, or track the beta dist-tag?
-10. **Persistence across reloads.** v1 loses all subagents on `session_shutdown`
-    (disposeAll). Codex/Claude children are external processes that *could* outlive a
-    pi reload — should v2 keep v1's kill-everything behavior (proposed for v1 of v2) or
-    plan for reattach later?
+Each item below was an open question in the original v1 planning document. All ten
+have since been resolved by the shipped implementation; none is still an open product
+decision as of this refresh. If a future change reopens one of these, update the
+"Resolution" column in the same change (per the maintenance note at the end of this
+document).
+
+| # | Original question | Resolution (verify against source) |
+|---|---|---|
+| 1 | Per-backend spawn options shape | Option (a) shipped: one generic `model` string + `reasoning_effort` enum, interpreted per backend (`src/domain.ts` `SpawnTask`, §6.1). |
+| 2 | One-shot `exec()` mode | Not added. Only the interactive-session path (`spawn`/`send`) exists; no `exec(task): Effect<RunOutcome>` in `src/backend.ts`. |
+| 3 | Permissions/sandboxing for Claude/Codex children | Trusted cwds get `bypassPermissions` / `danger-full-access`; untrusted cwds never do (§6.2, `permission-policy.test.ts`). Not a global setting or per-spawn parameter — it is derived automatically from the trust boundary. |
+| 4 | Concurrency cap scope | Kept as one global `MAX_RUNNING = 4` across all backends (`src/manager.ts`), not per-backend. |
+| 5 | Steering parity across backends | `capabilities.steering` is `true` for pi and Claude, `false` for Codex (§6.3) — the UI is expected to reflect this rather than treating steering as a hard requirement for all three. |
+| 6 | Model/thinking inheritance across backends | pi inherits the parent's model/thinking level via its `ModelRegistry`; Claude/Codex simply omit the model option and defer to that backend's own default when none is given — no extra config block was added (§6.3). |
+| 7 | Binary/SDK discovery + failure UX | `available` probes the binary/registry per backend; `subagent_spawn` fails fast with a `BackendUnavailableError`-derived tool error rather than hiding the backend from the enum dynamically (`src/manager.ts` `spawn`). |
+| 8 | Result truncation budgets | Kept unchanged: 24KB result message, 48KB wait total / 16KB per agent, 2KB/20-line check preview (`index.ts` constants). |
+| 9 | Effect version pinning | Tracked via a caret range (`^4.0.0-beta.99`) and the lockfile, not an exact pin (§6.9). |
+| 10 | Persistence across reloads | Kept v1's kill-everything behavior; no reattach-after-reload support was added (§6.5). |
+
+---
+
+## 9. Migration/coexistence note (historical, resolved)
+
+> This section described a temporary-naming plan for while a hypothetical v1
+> implementation and this design coexisted in `~/.pi/agent/extensions/`. No such v1
+> duplicate was ever present in this repository — the tool names (`subagent_spawn`,
+> `subagent_wait`, `subagent_cancel`, `subagent_check`, `subagent_list`) and the
+> `/subagents` command shipped directly under their final names. This section is kept
+> only as a historical record of the original concern; there is nothing left to act on.
+
+---
+
+## Maintenance notes
+
+Date architecture decisions and link to the owning source/tests. When a future change
+alters backend behavior, the manager's concurrency/persistence model, the trust
+boundary, or the package boundary, update §6 (and, if it resolves or reopens one of the
+items in §8, that table) in the same change.

@@ -36,10 +36,14 @@ export interface FormatOutputOptions {
   readonly persistFullOutput?: (output: string) => Promise<string>;
 }
 
+/** Owner-only permissions for spilled full-output files (they may hold secrets). */
+const PRIVATE_FILE_MODE = 0o600;
+
 async function persistToTempFile(prefix: string, output: string) {
+  // node:fs mkdtemp always creates the directory 0o700, independent of umask.
   const directory = await mkdtemp(join(tmpdir(), prefix));
   const path = join(directory, "output.txt");
-  await writeFile(path, output, "utf8");
+  await writeFile(path, output, { encoding: "utf8", mode: PRIVATE_FILE_MODE });
   return path;
 }
 
@@ -54,7 +58,8 @@ function truncationNotice(options: {
   return (
     `${options.content}\n\n[Output truncated: ${options.outputLines} of ${options.totalLines} lines ` +
     `(${formatSize(options.outputBytes)} of ${formatSize(options.totalBytes)}). ` +
-    `Full output saved to: ${options.fullOutputPath}]`
+    `Full output saved to: ${options.fullOutputPath} — temporary, private to this user, ` +
+    `and removed when this session ends]`
   );
 }
 

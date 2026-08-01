@@ -10,6 +10,15 @@ const MAX_RESULT_BYTES = 1024 * 1024;
 const MAX_AGENT_MESSAGE_BYTES = 512 * 1024;
 const MAX_AGENT_REQUESTS = 32;
 
+/**
+ * Default wall-clock deadline for a whole workflow run, including any
+ * asynchronous continuation after the synchronous VM bootstrap/invocation
+ * timeouts elapse. A workflow that legitimately needs more time must use a
+ * reviewed configuration extension (see `deadlineMs` below), not remove the
+ * deadline.
+ */
+export const DEFAULT_WORKFLOW_DEADLINE_MS = 30 * 60 * 1000;
+
 export interface SandboxAgentOptions {
   label?: unknown;
   phase?: unknown;
@@ -37,6 +46,13 @@ export interface RunWorkflowSandboxOptions {
     signal: AbortSignal,
   ) => Promise<SandboxAgentResult>;
   onPhase: (title: string) => void;
+  /**
+   * Test/internal override for the wall-clock deadline in milliseconds.
+   * Defaults to {@link DEFAULT_WORKFLOW_DEADLINE_MS}. Production callers
+   * should not set this; it exists so tests can exercise the timeout path
+   * deterministically without waiting on the real default.
+   */
+  deadlineMs?: number;
 }
 
 function byteLength(value: string) {
@@ -76,9 +92,12 @@ function sanitizeAgentOptions(value: unknown): SandboxAgentOptions {
 /**
  * Execute orchestration code in a separate, permission-restricted Node process.
  * The child can only invoke the narrow agent/phase IPC protocol and is always
- * terminated on completion, cancellation, or protocol failure. The workflow
- * itself and its agent requests have no wall-clock deadline. Active requests
- * are aborted only when the workflow is cancelled or the sandbox is cleaned up.
+ * terminated on completion, cancellation, protocol failure, or the workflow
+ * wall-clock deadline. The deadline (default {@link DEFAULT_WORKFLOW_DEADLINE_MS},
+ * overridable via {@link RunWorkflowSandboxOptions.deadlineMs} for tests) bounds
+ * the whole run, including any asynchronous continuation the synchronous VM
+ * timeouts in the child do not cover. Active agent requests are aborted when
+ * the workflow is cancelled, times out, or the sandbox is cleaned up.
  */
 export function runWorkflowSandbox(options: RunWorkflowSandboxOptions) {
   if (!process.allowedNodeEnvironmentFlags.has("--permission")) {
@@ -127,8 +146,10 @@ export function runWorkflowSandbox(options: RunWorkflowSandboxOptions) {
     const activeAgentRequests = new Map<number, AbortController>();
     let requestCount = 0;
     let finished = false;
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
 
     const cleanup = () => {
+      if (deadlineTimer) clearTimeout(deadlineTimer);
       for (const abortController of activeAgentRequests.values()) {
         abortController.abort(new Error("Workflow stopped"));
       }
@@ -153,6 +174,16 @@ export function runWorkflowSandbox(options: RunWorkflowSandboxOptions) {
       onAbort();
       return;
     }
+
+    const deadlineMs = options.deadlineMs ?? DEFAULT_WORKFLOW_DEADLINE_MS;
+    deadlineTimer = setTimeout(() => {
+      finish(
+        new Error(
+          `Workflow exceeded its ${deadlineMs}ms execution deadline and was terminated`,
+        ),
+      );
+    }, deadlineMs);
+    deadlineTimer.unref?.();
 
     child.on("error", (error) => finish(error));
     child.on("exit", (code, exitSignal) => {
