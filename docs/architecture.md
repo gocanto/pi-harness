@@ -31,6 +31,10 @@ Concern packages prevent god files as features grow:
 - `workflows/dashboard/` owns run-cache parsing and artifact hydration, apart from dashboard rendering.
 - `workflows/runner/` owns progress/transcript reduction, apart from session orchestration.
 - `subagents/src/backends/codex/` owns binary discovery, protocol mapping, and process-tree shutdown.
+- `subagents/src/backends/claude/` owns binary discovery, streaming input, protocol parsing, and bounded teardown.
+- `subagents/src/backends/pi/` owns model resolution, child resources, transcript translation, and session lifecycle.
+- `git-info/src/changed-files-view/` separates git loading, terminal sanitization, and TUI rendering.
+- `workflows/registry.ts` owns live-run state and persisted run read models; `workflows/tool.ts` owns tool execution and presentation.
 
 Effect `Context.Service` values remain the dependency-injection ports. Concrete classes are constructed in the corresponding runtime layer and injected into those ports; this keeps ambient process and runtime concerns out of domain objects.
 
