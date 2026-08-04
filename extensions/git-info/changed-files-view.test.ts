@@ -1,4 +1,4 @@
-import { assert } from '../test-assert.ts';
+import { assert } from '../../tests/test-assert.ts';
 import { test } from 'vitest';
 import { Cause, Deferred, Effect, Exit, Fiber, Layer } from 'effect';
 import { CommandRunner, type CommandResult } from './src/process.ts';

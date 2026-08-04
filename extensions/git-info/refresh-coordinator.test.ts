@@ -1,4 +1,4 @@
-import { assert } from '../test-assert.ts';
+import { assert } from '../../tests/test-assert.ts';
 import { test } from 'vitest';
 import { Deferred, Effect, Fiber } from 'effect';
 import { makeRefreshCoordinator } from './src/refresh-coordinator.ts';

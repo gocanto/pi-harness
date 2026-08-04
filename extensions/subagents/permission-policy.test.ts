@@ -7,7 +7,7 @@
  * deterministic and safe to run in CI.
  */
 
-import { assert } from '../test-assert.ts';
+import { assert } from '../../tests/test-assert.ts';
 import { test } from 'vitest';
 import { claudePermissionOptions } from './src/backends/claude.ts';
 import { codexSandboxOptions } from './src/backends/codex.ts';

@@ -1,4 +1,4 @@
-import { assert } from '../test-assert.ts';
+import { assert } from '../../tests/test-assert.ts';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';

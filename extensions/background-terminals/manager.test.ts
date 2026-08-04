@@ -6,7 +6,7 @@
  * timing-based.
  */
 
-import { assert } from '../test-assert.ts';
+import { assert } from '../../tests/test-assert.ts';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';

@@ -1,4 +1,4 @@
-import { assert } from '../test-assert.ts';
+import { assert } from '../../tests/test-assert.ts';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'vitest';

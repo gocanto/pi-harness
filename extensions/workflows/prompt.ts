@@ -31,9 +31,11 @@ export const WORKFLOW_TOOL_DESCRIPTION = [
   "export const meta = { name: 'reliability-review', description: 'Review modules for reliability risks, then report', phases: [{ title: 'Scan' }, { title: 'Report' }] }",
   "const FINDINGS = { type: 'object', properties: { issues: { type: 'array', items: { type: 'string' } }, ok: { type: 'boolean' } }, required: ['issues', 'ok'] }",
   "phase('Scan')",
+  // eslint-disable-next-line no-template-curly-in-string
   "const scans = await parallel(args.files.map((f) => () => agent(`Review ${f} for correctness and reliability risks.`, { label: `scan:${f}`, phase: 'Scan', schema: FINDINGS })))",
   "const findings = scans.filter((r) => r.ok).map((r) => r.structured)",
   "phase('Report')",
+  // eslint-disable-next-line no-template-curly-in-string
   "const report = await agent(`Summarize these findings: ${JSON.stringify(findings)}`, { label: 'report', phase: 'Report' })",
   "return { findings, report: report.ok ? report.output : report.error }",
 ].join("\n");

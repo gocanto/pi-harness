@@ -6,7 +6,7 @@
  * the real pi backend for its cheap registry precondition.
  */
 
-import { assert } from '../test-assert.ts';
+import { assert } from '../../tests/test-assert.ts';
 import { test } from 'vitest';
 import { Effect, Layer, ManagedRuntime } from 'effect';
 import { BackendRegistry, type SubagentBackend } from './src/backend.ts';

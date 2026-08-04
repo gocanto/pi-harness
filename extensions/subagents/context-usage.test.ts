@@ -1,4 +1,4 @@
-import { assert } from '../test-assert.ts';
+import { assert } from '../../tests/test-assert.ts';
 import { test } from 'vitest';
 import { contextOccupancyTokens } from './src/backends/claude.ts';
 import { parseThreadTokenUsage } from './src/backends/codex.ts';

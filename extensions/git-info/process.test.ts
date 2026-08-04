@@ -1,4 +1,4 @@
-import { assert } from '../test-assert.ts';
+import { assert } from '../../tests/test-assert.ts';
 import { afterAll, test } from 'vitest';
 import { runCommand } from './src/process.ts';
 import { createRuntime } from './src/runtime.ts';

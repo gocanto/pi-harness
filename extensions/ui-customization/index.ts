@@ -51,20 +51,24 @@ const TITLE_LINES = [
   "  ╚═╝      ╚═╝ ",
 ];
 const ANSI_PATTERN =
+  // eslint-disable-next-line no-control-regex
   /[\u001B\u009B][[\]()#;?]*(?:(?:(?:[a-zA-Z\d]*(?:;[a-zA-Z\d]*)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-nq-uy=><~]))/g;
-// eslint-disable-next-line no-control-regex
 const OSC_PATTERN =
+  // eslint-disable-next-line no-control-regex
   /(?:\u001b\]|\u009d)(?:[^\u0007\u001b\u009c]|\u001b(?!\\))*(?:\u0007|\u001b\\|\u009c)/g;
-// eslint-disable-next-line no-control-regex
-const CSI_PATTERN = /(?:\u001b\[|\u009b)[0-?]*[ -/]*[@-~]/g;
-// eslint-disable-next-line no-control-regex
-const ESCAPE_PATTERN = /\u001b(?:[()][0-2A-Z]|[ -/]*[@-~])/g;
+const CSI_PATTERN =
+  // eslint-disable-next-line no-control-regex
+  /(?:\u001b\[|\u009b)[0-?]*[ -/]*[@-~]/g;
+const ESCAPE_PATTERN =
+  // eslint-disable-next-line no-control-regex
+  /\u001b(?:[()][0-2A-Z]|[ -/]*[@-~])/g;
 
 function sanitizeTerminalLabel(text: string) {
   return text
     .replace(OSC_PATTERN, "")
     .replace(CSI_PATTERN, "")
     .replace(ESCAPE_PATTERN, "")
+    // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u001f\u007f-\u009f]/g, "");
 }
 

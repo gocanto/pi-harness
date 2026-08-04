@@ -1,4 +1,4 @@
-import { assert } from '../test-assert.ts';
+import { assert } from '../../tests/test-assert.ts';
 import { test } from 'vitest';
 
 import { BTW_TITLE_MAX_LENGTH, deriveBtwTitle, isModelVisible } from './src/by-the-way.ts';

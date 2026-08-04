@@ -1,4 +1,4 @@
-import { assert } from '../test-assert.ts';
+import { assert } from '../../tests/test-assert.ts';
 import { test } from 'vitest';
 import { Effect } from 'effect';
 import { codexBackend } from './src/backends/codex.ts';
