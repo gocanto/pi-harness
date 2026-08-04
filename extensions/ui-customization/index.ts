@@ -192,23 +192,36 @@ export default function uiCustomization(pi: ExtensionAPI) {
 	let activeTui: DashboardTui | undefined;
 	let themeRemovalTimers: Array<ReturnType<typeof setTimeout>> = [];
 
-	const stopModelListener = pi.events.on(MODEL_INFO_CHANNEL, (value) => {
-		if (!isModelInfoState(value)) {
-			return;
-		}
+	let stopModelListener: (() => void) | undefined;
+	let stopGitListener: (() => void) | undefined;
 
-		modelInfo = value;
-		requestRender?.();
-	});
+	/**
+	 * Subscribed per session, not once at extension init: session_shutdown tears
+	 * these down, and install() re-runs on every session_start. Subscribing once
+	 * left the model and git panes permanently dead from the second session on.
+	 */
+	function subscribeDashboardChannels() {
+		stopModelListener?.();
+		stopGitListener?.();
 
-	const stopGitListener = pi.events.on(GIT_INFO_CHANNEL, (value) => {
-		if (!isGitInfoState(value)) {
-			return;
-		}
+		stopModelListener = pi.events.on(MODEL_INFO_CHANNEL, (value) => {
+			if (!isModelInfoState(value)) {
+				return;
+			}
 
-		gitInfo = value;
-		requestRender?.();
-	});
+			modelInfo = value;
+			requestRender?.();
+		});
+
+		stopGitListener = pi.events.on(GIT_INFO_CHANNEL, (value) => {
+			if (!isGitInfoState(value)) {
+				return;
+			}
+
+			gitInfo = value;
+			requestRender?.();
+		});
+	}
 
 	function scheduleThemeRemoval(tui: DashboardTui) {
 		for (const timer of themeRemovalTimers) {
@@ -311,6 +324,7 @@ export default function uiCustomization(pi: ExtensionAPI) {
 		title = formatDirectory(ctx.cwd);
 		modelInfo = emptyModelInfoState();
 		gitInfo = emptyGitInfoState();
+		subscribeDashboardChannels();
 		install(ctx);
 	});
 
@@ -321,8 +335,10 @@ export default function uiCustomization(pi: ExtensionAPI) {
 	});
 
 	pi.on('session_shutdown', (_event, ctx) => {
-		stopModelListener();
-		stopGitListener();
+		stopModelListener?.();
+		stopGitListener?.();
+		stopModelListener = undefined;
+		stopGitListener = undefined;
 
 		for (const timer of themeRemovalTimers) {
 			clearTimeout(timer);

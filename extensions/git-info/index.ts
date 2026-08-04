@@ -135,13 +135,23 @@ export default function gitInfo(pi: ExtensionAPI) {
 		pollingTimer = undefined;
 	};
 
-	const stopRefreshListener = pi.events.on(REFRESH_CHANNEL, () => {
-		if (currentContext) {
-			refreshInBackground(currentContext);
-		}
-	});
+	let stopRefreshListener: (() => void) | undefined;
+
+	/**
+	 * Subscribed per session: session_shutdown unsubscribes, so subscribing once
+	 * at init left /pr refreshes dead for every session after the first.
+	 */
+	function subscribeRefresh() {
+		stopRefreshListener?.();
+		stopRefreshListener = pi.events.on(REFRESH_CHANNEL, () => {
+			if (currentContext) {
+				refreshInBackground(currentContext);
+			}
+		});
+	}
 
 	pi.on('session_start', (_event, ctx) => {
+		subscribeRefresh();
 		generation += 1;
 		prQueryTracker.reset();
 		stopPolling();
@@ -166,7 +176,8 @@ export default function gitInfo(pi: ExtensionAPI) {
 	});
 
 	pi.on('session_shutdown', () => {
-		stopRefreshListener();
+		stopRefreshListener?.();
+		stopRefreshListener = undefined;
 		stopPolling();
 		generation += 1;
 		currentContext = undefined;

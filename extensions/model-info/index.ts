@@ -65,13 +65,23 @@ export default function modelInfo(pi: ExtensionAPI) {
 		lastLiveUpdate = 0;
 	}
 
-	const stopRefreshListener = pi.events.on(REFRESH_CHANNEL, () => {
-		if (currentContext) {
-			refresh(currentContext);
-		}
-	});
+	let stopRefreshListener: (() => void) | undefined;
+
+	/**
+	 * Subscribed per session: session_shutdown unsubscribes, so subscribing once
+	 * at init left the pane dead for every session after the first.
+	 */
+	function subscribeRefresh() {
+		stopRefreshListener?.();
+		stopRefreshListener = pi.events.on(REFRESH_CHANNEL, () => {
+			if (currentContext) {
+				refresh(currentContext);
+			}
+		});
+	}
 
 	pi.on('session_start', (_event, ctx) => {
+		subscribeRefresh();
 		resetMessageTracking();
 		runContentTokens = 0;
 		runContentStreamMs = 0;
@@ -198,7 +208,8 @@ export default function modelInfo(pi: ExtensionAPI) {
 	});
 
 	pi.on('session_shutdown', () => {
-		stopRefreshListener();
+		stopRefreshListener?.();
+		stopRefreshListener = undefined;
 		currentContext = undefined;
 	});
 }
