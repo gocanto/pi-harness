@@ -5,35 +5,63 @@
  * rewrites files in place and always exits 0. So the only honest way to gate on
  * formatting is to run the formatter and see whether it changed anything.
  *
- * On CI the tree is clean, so any file the formatter touches is drift. Locally
- * the tree usually is not clean, so files that were already modified before we
- * ran are reported separately rather than failing the check.
+ * Drift is measured by hashing each source file before and after the run rather
+ * than by consulting `git diff`. Uncommitted work is normal locally, and a
+ * git-based comparison would either miss drift in an already-modified file or
+ * report unrelated edits as drift.
  */
 
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
-const git = (args) => execFileSync('git', args, { encoding: 'utf8' });
+const sourceExtensions = new Set(['.cjs', '.js', '.jsx', '.mjs', '.ts', '.tsx', '.vue']);
 
-/** Tracked files with uncommitted modifications, as a set of repo-relative paths. */
-const modifiedFiles = () => new Set(git(['diff', '--name-only']).split('\n').filter(Boolean));
+const sourceFiles = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' })
+	.split('\0')
+	.filter((file) => file && sourceExtensions.has(file.slice(file.lastIndexOf('.'))));
 
-const before = modifiedFiles();
-
-execFileSync('fmtkit', ['format-all', '--ts', '--quiet'], { stdio: 'inherit' });
-
-const after = modifiedFiles();
-const drifted = [...after].filter((file) => !before.has(file));
-
-if (drifted.length === 0) {
-	const alreadyDirty = [...after].filter((file) => before.has(file));
-	if (alreadyDirty.length > 0) {
-		console.warn(`Formatting check skipped ${alreadyDirty.length} file(s) that were already modified before the run.`);
+/** Content hash per file, skipping any file missing from the working tree. */
+const hashFiles = () => {
+	const hashes = new Map();
+	for (const file of sourceFiles) {
+		try {
+			hashes.set(file, createHash('sha256').update(readFileSync(file)).digest('hex'));
+		} catch (error) {
+			if (error.code !== 'ENOENT') {
+				throw error;
+			}
+		}
 	}
 
+	return hashes;
+};
+
+const before = hashFiles();
+
+// `fmtkit format-all --ts` also runs oxlint, so it exits non-zero on a lint
+// error as well as on a genuine formatter failure. Either way this is not
+// formatting drift, and it should not surface as an unhandled stack trace.
+try {
+	execFileSync('fmtkit', ['format-all', '--ts', '--quiet'], { stdio: 'inherit' });
+} catch (error) {
+	if (error.code === 'ENOENT') {
+		console.error('fmtkit is not installed. See https://github.com/oullin/fmtkit, or `brew install oullin/fmtkit/fmtkit`.');
+	} else {
+		console.error('The formatter exited non-zero (see its output above). That is a formatter or lint failure, not formatting drift.');
+	}
+
+	process.exit(1);
+}
+
+const after = hashFiles();
+const drifted = sourceFiles.filter((file) => before.has(file) && after.has(file) && before.get(file) !== after.get(file));
+
+if (drifted.length === 0) {
 	process.exit(0);
 }
 
-console.error('Formatting drift. These files are not formatted:');
+console.error(`Formatting drift in ${drifted.length} file(s):`);
 for (const file of drifted) {
 	console.error(`- ${file}`);
 }

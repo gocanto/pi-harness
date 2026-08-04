@@ -32,6 +32,6 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:live": "vitest run --config vitest.live.config.ts",
-    "verify": "pnpm run format:check && pnpm run lint && pnpm run check && pnpm test"
+    "verify": "pnpm run lint && pnpm run format:check && pnpm run check && pnpm test"
   }
 }
