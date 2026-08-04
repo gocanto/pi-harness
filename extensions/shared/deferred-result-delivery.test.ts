@@ -1,9 +1,16 @@
+/**
+ * Coverage for the shared delivery queue, which both the subagents and the
+ * background-terminals extensions use directly. It previously lived in two
+ * near-duplicate copies, one per extension, each importing an identical
+ * re-export shim.
+ */
+
 import { assert } from '@tests/test-assert.ts';
 import { test } from 'vitest';
-import { createDeferredResultDelivery } from '@subagents/src/result-delivery.ts';
+import { DeferredResultDelivery } from '@shared/deferred-result-delivery.ts';
 
 test('a result consumed by a later wait is not delivered', () => {
-	const delivery = createDeferredResultDelivery<{
+	const delivery = new DeferredResultDelivery<{
 		id: string;
 		output: string;
 	}>();
@@ -15,7 +22,7 @@ test('a result consumed by a later wait is not delivered', () => {
 });
 
 test('unconsumed results are delivered once in settlement order', () => {
-	const delivery = createDeferredResultDelivery<{ id: string }>();
+	const delivery = new DeferredResultDelivery<{ id: string }>();
 	const first = { id: 'sa-1' };
 	const second = { id: 'sa-2' };
 
@@ -27,7 +34,7 @@ test('unconsumed results are delivered once in settlement order', () => {
 });
 
 test('a result stays pending after a failed send and delivers once on retry', () => {
-	const delivery = createDeferredResultDelivery<{ id: string }>();
+	const delivery = new DeferredResultDelivery<{ id: string }>();
 	const result = { id: 'sa-1' };
 
 	delivery.defer(result);
@@ -55,7 +62,7 @@ test('a result stays pending after a failed send and delivers once on retry', ()
 });
 
 test('flush delivers multiple results in settlement order and removes only sent ones', () => {
-	const delivery = createDeferredResultDelivery<{ id: string }>();
+	const delivery = new DeferredResultDelivery<{ id: string }>();
 	const first = { id: 'sa-1' };
 	const second = { id: 'sa-2' };
 
@@ -74,7 +81,7 @@ test('flush delivers multiple results in settlement order and removes only sent 
 });
 
 test('a sender failure for one result does not block delivery of the others', () => {
-	const delivery = createDeferredResultDelivery<{ id: string }>();
+	const delivery = new DeferredResultDelivery<{ id: string }>();
 	const first = { id: 'sa-1' };
 	const second = { id: 'sa-2' };
 	const third = { id: 'sa-3' };
@@ -102,7 +109,7 @@ test('a sender failure for one result does not block delivery of the others', ()
 });
 
 test('a result consumed mid-flush is not resent by that same flush', () => {
-	const delivery = createDeferredResultDelivery<{ id: string }>();
+	const delivery = new DeferredResultDelivery<{ id: string }>();
 	const first = { id: 'sa-1' };
 	const second = { id: 'sa-2' };
 
@@ -121,4 +128,25 @@ test('a result consumed mid-flush is not resent by that same flush', () => {
 
 	assert.deepEqual(delivered, [first]);
 	assert.deepEqual(delivery.drain(), []);
+});
+
+test('re-deferring the same id replaces rather than duplicates', () => {
+	const delivery = new DeferredResultDelivery<{ id: string; n: number }>();
+
+	delivery.defer({ id: 'bt-1', n: 1 });
+	delivery.defer({ id: 'bt-1', n: 2 });
+	assert.deepEqual(delivery.drain(), [{ id: 'bt-1', n: 2 }]);
+});
+
+test('a drained result can be retained for retry after delivery fails', () => {
+	const delivery = new DeferredResultDelivery<{ id: string }>();
+	const result = { id: 'bt-1' };
+
+	delivery.defer(result);
+
+	for (const drained of delivery.drain()) {
+		delivery.defer(drained);
+	}
+
+	assert.deepEqual(delivery.drain(), [result]);
 });

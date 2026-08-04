@@ -54,15 +54,6 @@ export class WorkflowRunRegistry {
 		this.runs.set(runId, run);
 	}
 
-	/** Attach the completion promise after a run starts. */
-	setCompletion(runId: string, completion: Promise<void>) {
-		const run = this.runs.get(runId);
-
-		if (run) {
-			run.completion = completion;
-		}
-	}
-
 	/** Remove a settled run. */
 	remove(runId: string) {
 		this.runs.delete(runId);

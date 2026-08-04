@@ -164,12 +164,18 @@ export class TerminalRegistry {
 					this.idListeners.set(id, listeners);
 				}
 
-				listeners.add(listener);
+				const subscribed = listeners;
+
+				subscribed.add(listener);
 
 				return () => {
-					listeners?.delete(listener);
+					subscribed.delete(listener);
 
-					if (listeners?.size === 0) {
+					// Only evict the slot while it still holds *this* set. Once a set
+					// empties it is removed, and a later subscriber for the same id
+					// installs a fresh one -- a duplicate or late call of this disposer
+					// must not drop that subscriber's listeners with it.
+					if (subscribed.size === 0 && this.idListeners.get(id) === subscribed) {
 						this.idListeners.delete(id);
 					}
 				};

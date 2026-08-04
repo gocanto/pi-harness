@@ -89,11 +89,14 @@ export class WorkflowRunCache {
 		const runDir = path.join(this.runsDir(), entry.runId);
 		const details = cached.details;
 
+		let loaded = true;
+
 		if (details.resultArtifact) {
 			try {
 				details.result = JSON.parse(fs.readFileSync(path.join(runDir, path.basename(details.resultArtifact)), 'utf8'));
 			} catch {
 				// Keep the compatibility marker from workflow.json.
+				loaded = false;
 			}
 		}
 
@@ -106,10 +109,17 @@ export class WorkflowRunCache {
 				}
 			} catch {
 				// Older or partially written artifacts may lack transcripts.
+				loaded = false;
 			}
 		}
 
-		cached.hydratedAtMtimeMs = cached.mtimeMs;
+		// Only latch when the artifacts actually loaded. Marking a run hydrated
+		// after a failed read pins that failure until the file's mtime changes,
+		// and the resulting empty transcript is rendered as "predates transcript
+		// capture" -- a misleading message for a transient read error.
+		if (loaded) {
+			cached.hydratedAtMtimeMs = cached.mtimeMs;
+		}
 	}
 
 	private readPersisted(runId: string): WorkflowDetails | undefined {

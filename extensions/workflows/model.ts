@@ -110,18 +110,6 @@ export function stateSquare(state: AgentState, theme: Theme): string {
 	return theme.fg('warning', SQUARE);
 }
 
-export function statusSquare(status: WorkflowStatus, theme: Theme): string {
-	if (status === 'completed') {
-		return theme.fg('success', SQUARE);
-	}
-
-	if (status === 'running') {
-		return theme.fg('warning', SQUARE);
-	}
-
-	return theme.fg('error', SQUARE);
-}
-
 export function statusWord(status: WorkflowStatus): string {
 	return status === 'completed' ? 'done' : status;
 }

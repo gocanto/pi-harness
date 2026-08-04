@@ -601,7 +601,11 @@ const makeManager = Effect.gen(function* () {
 
 			return () => {
 				set.delete(listener);
-				if (set.size === 0) {
+				// Only evict the slot while it still holds *this* set. Once a set
+				// empties it is removed, and a later subscriber for the same id
+				// installs a fresh one -- a duplicate or late call of this disposer
+				// must not drop that subscriber's listeners with it.
+				if (set.size === 0 && idListeners.get(id) === set) {
 					idListeners.delete(id);
 				}
 			};

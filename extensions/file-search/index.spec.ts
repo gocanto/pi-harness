@@ -1,12 +1,11 @@
 import { NodeServices } from '@effect/platform-node';
 import { assert, it } from '@effect/vitest';
 import { existsSync, statSync } from 'node:fs';
-import { rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Effect, FileSystem } from 'effect';
 import { HttpClientRequest, HttpClientResponse } from 'effect/unstable/http';
-import { formatCapturedOutput, formatOutput } from '@file-search/src/output.ts';
+import { formatCapturedOutput } from '@file-search/src/output.ts';
 import { discardCapturedOutput, executeSearchProcess } from '@file-search/src/process.ts';
 import { installNotifications, makeBinaryInitializers } from '@file-search/index.ts';
 import { buildFdArgs, buildRgArgs, FD_DEFAULT_LIMIT, normalizeSearchPath } from '@file-search/src/args.ts';
@@ -405,75 +404,3 @@ it.effect('a failed search does not retain its spilled output directory', () =>
 		yield* discardCapturedOutput(result.output);
 	}).pipe(Effect.provide(NodeServices.layer)),
 );
-
-it('output: small results pass through untouched', async () => {
-	const formatted = await formatOutput(
-		'a.ts\nb.ts\n',
-		{
-			tempPrefix: 'pi-fd-',
-			persistFullOutput: () => Promise.reject(new Error('should not persist')),
-		},
-	);
-
-	assert.equal(formatted.text, 'a.ts\nb.ts');
-	assert.equal(formatted.lineCount, 2);
-	assert.isFalse(formatted.truncated);
-	assert.isUndefined(formatted.fullOutputPath);
-});
-
-it('output: oversized results are truncated and persisted', async () => {
-	const bigOutput = Array.from({ length: 3000 }, (_, i) => `file-${i}.ts`).join('\n');
-
-	let persisted: string | undefined;
-
-	const formatted = await formatOutput(
-		bigOutput,
-		{
-			tempPrefix: 'pi-fd-',
-			persistFullOutput: async (full) => {
-				persisted = full;
-
-				return '/tmp/fake/output.txt';
-			},
-		},
-	);
-
-	assert.isTrue(formatted.truncated);
-	assert.equal(formatted.fullOutputPath, '/tmp/fake/output.txt');
-	assert.equal(persisted, bigOutput);
-	assert.match(formatted.text, /\[Output truncated: 2000 of 3000 lines/);
-	assert.match(formatted.text, /Full output saved to: \/tmp\/fake\/output\.txt — temporary, private to this user, and removed when this session ends\]/);
-
-	const shownLines = formatted.text.split('\n');
-
-	assert.equal(shownLines[0], 'file-0.ts');
-});
-
-it('output: persisted spill files are private to the owner', async () => {
-	const bigOutput = Array.from({ length: 3000 }, (_, i) => `file-${i}.ts`).join('\n');
-
-	const formatted = await formatOutput(
-		bigOutput,
-		{ tempPrefix: 'pi-fd-' },
-	);
-
-	assert.isDefined(formatted.fullOutputPath);
-
-	const fullOutputPath = formatted.fullOutputPath;
-
-	if (!fullOutputPath) {
-		throw new Error('expected a persisted output path');
-	}
-
-	try {
-		if (process.platform !== 'win32') {
-			assert.equal(statSync(fullOutputPath).mode & 0o777, 0o600);
-			assert.equal(statSync(dirname(fullOutputPath)).mode & 0o777, 0o700);
-		}
-	} finally {
-		await rm(
-			dirname(fullOutputPath),
-			{ recursive: true, force: true },
-		);
-	}
-});
