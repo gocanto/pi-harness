@@ -33,7 +33,7 @@ The hard part is that "long-running work" is not one thing here:
 A design that papers over this with one enum risks exactly what the plan's
 executor instructions warn against: replacing tools or weakening
 backend-specific security boundaries. This document's job is to find the
-smallest read-only common surface that does *not* require doing that, and to
+smallest read-only common surface that does _not_ require doing that, and to
 say plainly where the differences are load-bearing and must stay separate.
 
 ---
@@ -46,11 +46,11 @@ see the plan's drift check) plus the durable-recovery design from plan 015.
 
 ### 2.1 Identifiers
 
-| | Format | Source | Scope |
-|---|---|---|---|
-| Workflow run | `wf_<12-hex>` | `randomBytes(6).toString("hex")`, `extensions/workflows/index.ts:403` | one `workflow` tool call |
-| Subagent | backend-prefixed id minted by `SubagentManager.spawn` | `extensions/subagents/src/manager.ts` (id space shared across all three backends) | one `subagent_spawn` call |
-| Background terminal | id minted by `TerminalManager.start` | `extensions/background-terminals/src/manager.ts` | one `bg_start` call |
+|                     | Format                                                | Source                                                                            | Scope                     |
+| ------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------- |
+| Workflow run        | `wf_<12-hex>`                                         | `randomBytes(6).toString("hex")`, `extensions/workflows/index.ts:403`             | one `workflow` tool call  |
+| Subagent            | backend-prefixed id minted by `SubagentManager.spawn` | `extensions/subagents/src/manager.ts` (id space shared across all three backends) | one `subagent_spawn` call |
+| Background terminal | id minted by `TerminalManager.start`                  | `extensions/background-terminals/src/manager.ts`                                  | one `bg_start` call       |
 
 None of the three id formats overlap or are drawn from a shared namespace;
 each manager mints and owns its own ids. A unified surface would need to
@@ -59,16 +59,16 @@ either wrap these opaquely (safe) or invent a fourth namespacing scheme
 
 ### 2.2 Lifecycle / state models
 
-| | States | Type shape | Derived/inferred states |
-|---|---|---|---|
-| Workflow (run) | `"running" \| "completed" \| "failed" \| "aborted"` | `WorkflowStatus`, `extensions/workflows/model.ts:42` | `listRuns()` infers a stale `"running"` on disk as `"aborted"` for display only, never rewrites it — `extensions/workflows/index.ts:207-217` |
-| Workflow (agent) | `"running" \| "done" \| "error"` | `AgentState`, `extensions/workflows/model.ts:41` | none today (plan 015 §4.2 proposes an `"unknown"` derived state for cross-process recovery — unimplemented) |
-| Subagent | `"running" \| "done" \| "error"` | `SubagentStatus`, `extensions/subagents/src/domain.ts:36` | none — a subagent can be restarted via `send()` after settling idle (`extensions/subagents/manager.test.ts:231` "idle restarts respect the concurrency cap"), which workflows and background-terminals have no equivalent of |
-| Background terminal | `"running" \| "done" \| "failed" \| "killed"` | `TerminalStatus`, `extensions/background-terminals/src/domain.ts:11-14` | none — states are OS-exit-code-driven, not model/session-driven |
+|                     | States                                              | Type shape                                                              | Derived/inferred states                                                                                                                                                                                                      |
+| ------------------- | --------------------------------------------------- | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Workflow (run)      | `"running" \| "completed" \| "failed" \| "aborted"` | `WorkflowStatus`, `extensions/workflows/model.ts:42`                    | `listRuns()` infers a stale `"running"` on disk as `"aborted"` for display only, never rewrites it — `extensions/workflows/index.ts:207-217`                                                                                 |
+| Workflow (agent)    | `"running" \| "done" \| "error"`                    | `AgentState`, `extensions/workflows/model.ts:41`                        | none today (plan 015 §4.2 proposes an `"unknown"` derived state for cross-process recovery — unimplemented)                                                                                                                  |
+| Subagent            | `"running" \| "done" \| "error"`                    | `SubagentStatus`, `extensions/subagents/src/domain.ts:36`               | none — a subagent can be restarted via `send()` after settling idle (`extensions/subagents/manager.test.ts:231` "idle restarts respect the concurrency cap"), which workflows and background-terminals have no equivalent of |
+| Background terminal | `"running" \| "done" \| "failed" \| "killed"`       | `TerminalStatus`, `extensions/background-terminals/src/domain.ts:11-14` | none — states are OS-exit-code-driven, not model/session-driven                                                                                                                                                              |
 
 All four are already tagged unions, not booleans, which is good precedent for
-a common model (§3) — but the *number* of states differs (3, 3, 3, 4) and
-their *meaning* differs even where the label matches: subagent `"error"` means
+a common model (§3) — but the _number_ of states differs (3, 3, 3, 4) and
+their _meaning_ differs even where the label matches: subagent `"error"` means
 the backend session itself failed; background-terminal `"failed"` means the
 OS process exited non-zero or a spawn-level error occurred; workflow-run
 `"failed"` means the orchestration script threw or the shutdown-settle
@@ -78,7 +78,7 @@ today's descriptions and tests each pin down separately.
 
 ### 2.3 Result delivery
 
-All three follow the same *pattern* — deferred queue, flush on
+All three follow the same _pattern_ — deferred queue, flush on
 `agent_settled`/idle, consumed-vs-deferred bookkeeping to avoid double
 delivery — but each has its **own independent implementation**, not a shared
 one:
@@ -94,21 +94,21 @@ one:
   including "a drained result can be retained for retry after delivery
   fails").
 
-This is the single clearest case of *convergent design without shared code*.
+This is the single clearest case of _convergent design without shared code_.
 `createDeferredResultDelivery<T>()` is duplicated verbatim in spirit between
-subagents and background-terminals — a genuine candidate for extraction *as
-a small generic utility*, independent of whether any broader job-surface
+subagents and background-terminals — a genuine candidate for extraction _as
+a small generic utility_, independent of whether any broader job-surface
 unification happens (see §4.4 and §5.3's rejection criteria — this is called
 out explicitly because it is the one place unification is safe and cheap,
 unlike the read-model itself).
 
 ### 2.4 Cancellation guarantees
 
-| | Tool | Mechanism | Bound | What happens to output |
-|---|---|---|---|---|
-| Workflow | *(no direct cancel tool — only whole-session shutdown or Esc on a blocking call)* | `RunController.abort()` + `settle()` | `RUN_SHUTDOWN_TIMEOUT_MS = 8_000` (`extensions/workflows/controller.ts:3`) | in-flight agent left `"error"`, `"Agent did not settle before run cleanup"` (`index.ts:658-664`) |
-| Subagent | `subagent_cancel` | `manager.cancel(ids)` → Effect fiber interrupt | `STOP_TIMEOUT_MS = 5_000` (`extensions/subagents/src/manager.ts:47`) | reports `cancelled: true`/status per id; a Claude/Codex backend session is torn down, not just interrupted in-process |
-| Background terminal | `bg_kill` | SIGTERM → `SETTLE_GRACE_MS` grace → SIGKILL tree-kill | `STOP_TIMEOUT_MS = 5_000` + `SETTLE_GRACE_MS = 1_000` (`extensions/background-terminals/src/manager.ts:45-50`) | stdout/stderr captured up to the kill; `killed` recorded, spill file finalized within `SPILL_FLUSH_TIMEOUT_MS = 1_500` |
+|                     | Tool                                                                              | Mechanism                                             | Bound                                                                                                          | What happens to output                                                                                                 |
+| ------------------- | --------------------------------------------------------------------------------- | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Workflow            | _(no direct cancel tool — only whole-session shutdown or Esc on a blocking call)_ | `RunController.abort()` + `settle()`                  | `RUN_SHUTDOWN_TIMEOUT_MS = 8_000` (`extensions/workflows/controller.ts:3`)                                     | in-flight agent left `"error"`, `"Agent did not settle before run cleanup"` (`index.ts:658-664`)                       |
+| Subagent            | `subagent_cancel`                                                                 | `manager.cancel(ids)` → Effect fiber interrupt        | `STOP_TIMEOUT_MS = 5_000` (`extensions/subagents/src/manager.ts:47`)                                           | reports `cancelled: true`/status per id; a Claude/Codex backend session is torn down, not just interrupted in-process  |
+| Background terminal | `bg_kill`                                                                         | SIGTERM → `SETTLE_GRACE_MS` grace → SIGKILL tree-kill | `STOP_TIMEOUT_MS = 5_000` + `SETTLE_GRACE_MS = 1_000` (`extensions/background-terminals/src/manager.ts:45-50`) | stdout/stderr captured up to the kill; `killed` recorded, spill file finalized within `SPILL_FLUSH_TIMEOUT_MS = 1_500` |
 
 Workflows has **no per-run cancel tool at all** today — only the parent
 session's Esc (blocking runs) or `session_shutdown` (background runs) can
@@ -118,24 +118,24 @@ denominator."
 
 ### 2.5 Output retention
 
-| | Where | Cap | Sweep |
-|---|---|---|---|
-| Workflow | `~/.pi/agent/workflows/<runId>/` on disk, owner-only `0600`/`0700` (`extensions/workflows/serialization.ts:5-7`) | `transcripts.json` 32KB/agent, 8KB/entry (`artifacts.ts:9-10`); `result.json` 1MB | `cleanupExpiredWorkflowRuns`, 14 days (`WORKFLOW_RETENTION_MS`, `retention.ts:10`), run on every `session_start`, skips anything in `activeRuns` |
-| Subagent | in-memory only; session file lives with the backend (pi session file / Claude projects JSONL / Codex rollout path, `extensions/subagents/src/domain.ts` `sessionFilePath`) | `SUBAGENT_OUTPUT_MAX_BYTES = 24 * 1024` truncation on read (`extensions/subagents/index.ts:78`); `MAX_TRACKED = 64` in-memory entries, pruned oldest-settled-first (`src/manager.ts:39-40`) | no disk sweep owned by this extension — backend session files are the backend's own retention story, out of scope here |
-| Background terminal | in-memory ring buffer + optional private spill file under `os.tmpdir()/pi-background-terminals/session-*` (`src/manager.ts:459-462`) | in-memory view bounded (head-truncated, `truncatedBytes` reported); spill is the full capture | spill directory removed on runtime disposal (`fs.rmSync(dir, { recursive: true, force: true })`, `src/manager.ts:853`) — a **session**-scoped sweep, not a time-based one like workflows' 14-day retention |
+|                     | Where                                                                                                                                                                      | Cap                                                                                                                                                                                         | Sweep                                                                                                                                                                                                      |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Workflow            | `~/.pi/agent/workflows/<runId>/` on disk, owner-only `0600`/`0700` (`extensions/workflows/serialization.ts:5-7`)                                                           | `transcripts.json` 32KB/agent, 8KB/entry (`artifacts.ts:9-10`); `result.json` 1MB                                                                                                           | `cleanupExpiredWorkflowRuns`, 14 days (`WORKFLOW_RETENTION_MS`, `retention.ts:10`), run on every `session_start`, skips anything in `activeRuns`                                                           |
+| Subagent            | in-memory only; session file lives with the backend (pi session file / Claude projects JSONL / Codex rollout path, `extensions/subagents/src/domain.ts` `sessionFilePath`) | `SUBAGENT_OUTPUT_MAX_BYTES = 24 * 1024` truncation on read (`extensions/subagents/index.ts:78`); `MAX_TRACKED = 64` in-memory entries, pruned oldest-settled-first (`src/manager.ts:39-40`) | no disk sweep owned by this extension — backend session files are the backend's own retention story, out of scope here                                                                                     |
+| Background terminal | in-memory ring buffer + optional private spill file under `os.tmpdir()/pi-background-terminals/session-*` (`src/manager.ts:459-462`)                                       | in-memory view bounded (head-truncated, `truncatedBytes` reported); spill is the full capture                                                                                               | spill directory removed on runtime disposal (`fs.rmSync(dir, { recursive: true, force: true })`, `src/manager.ts:853`) — a **session**-scoped sweep, not a time-based one like workflows' 14-day retention |
 
-Three genuinely different retention *policies* (disk-persistent + time-swept,
+Three genuinely different retention _policies_ (disk-persistent + time-swept,
 backend-owned + memory-pruned, tmpdir-scoped + disposal-swept) driven by three
 different durability guarantees. A shared "output pointer" concept (§3) can
-represent "where is the full output" without unifying *how long it lives*.
+represent "where is the full output" without unifying _how long it lives_.
 
 ### 2.6 Trust policy
 
-| | Cross-directory trust check | Enforcement point |
-|---|---|---|
-| Workflow | none — every `agent()` call always runs in the parent's `ctx.cwd` with the parent's live `ctx.isProjectTrusted()` captured once per run (`extensions/workflows/index.ts:431`); there is no `working_dir` parameter at all | implicit: no cwd param means no cross-directory question exists |
-| Subagent | explicit — `resolveStandaloneChildProjectTrust` (`extensions/shared/child-session.ts`) fails closed for any `working_dir` outside the parent's trusted directory unless an explicit `ProjectTrustStore` entry exists; enforced **before** a concurrency slot is reserved or a backend session starts (`extensions/subagents/index.ts:290-302`, regression-tested in `extensions/subagents/trust.test.ts`: same-dir/alt-dir/trusted/untrusted × 5 scenarios) | `subagent_spawn`'s `execute`, ahead of `manager.spawn` |
-| Background terminal | **none** — `bg_start` resolves `working_dir` and only checks it exists and is a directory (`extensions/background-terminals/index.ts:231-234`); there is no `resolveStandaloneChildProjectTrust` call anywhere in this extension | none — the process runs as an OS child of the current session with no separate trust gate |
+|                     | Cross-directory trust check                                                                                                                                                                                                                                                                                                                                                                                                                                 | Enforcement point                                                                         |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Workflow            | none — every `agent()` call always runs in the parent's `ctx.cwd` with the parent's live `ctx.isProjectTrusted()` captured once per run (`extensions/workflows/index.ts:431`); there is no `working_dir` parameter at all                                                                                                                                                                                                                                   | implicit: no cwd param means no cross-directory question exists                           |
+| Subagent            | explicit — `resolveStandaloneChildProjectTrust` (`extensions/shared/child-session.ts`) fails closed for any `working_dir` outside the parent's trusted directory unless an explicit `ProjectTrustStore` entry exists; enforced **before** a concurrency slot is reserved or a backend session starts (`extensions/subagents/index.ts:290-302`, regression-tested in `extensions/subagents/trust.test.ts`: same-dir/alt-dir/trusted/untrusted × 5 scenarios) | `subagent_spawn`'s `execute`, ahead of `manager.spawn`                                    |
+| Background terminal | **none** — `bg_start` resolves `working_dir` and only checks it exists and is a directory (`extensions/background-terminals/index.ts:231-234`); there is no `resolveStandaloneChildProjectTrust` call anywhere in this extension                                                                                                                                                                                                                            | none — the process runs as an OS child of the current session with no separate trust gate |
 
 This is the sharpest asymmetry in the whole inventory, and the one a unified
 surface must **never** paper over: subagents can point at an arbitrary
@@ -143,24 +143,24 @@ directory and therefore must clear an explicit trust gate; background
 terminals accept an arbitrary shell command string and rely entirely on the
 existing session-level trust already granted to reach `bg_start` at all
 (there is no additional directory-hop to re-authorize, since running a
-command *is* the dangerous operation, not visiting a directory). A shared
+command _is_ the dangerous operation, not visiting a directory). A shared
 read model must **not** expose a single "trusted: boolean" flag that implies
 these are the same check — see §3.3 and §5's rejection note.
 
 ### 2.7 UI surfaces
 
-| | Command | Widget | Full view |
-|---|---|---|---|
-| Workflow | `/workflows [runId]` | below-editor status line via `formatActivityStatus` (`extensions/shared/activity-status.ts`) | TUI dashboard, `extensions/workflows/dashboard.ts` |
-| Subagent | `/subagents`, `/btw` | below-editor status line via a **separate**, self-contained `formatActivityStatus` copy (`extensions/subagents/src/format.ts:1-4`, explicitly commented "self-contained copies of the v1 shared helpers") | full-screen picker + interactive takeover, `extensions/subagents/src/ui/takeover.ts` |
-| Background terminal | `/ps` | above-editor one-line widget (`extensions/background-terminals/index.ts:84-117`), a different UI slot (`setWidget`, not `setStatus`) from the other two | two-stage picker → read-only stdout/stderr detail, `extensions/background-terminals/src/ui/ps.ts` |
+|                     | Command              | Widget                                                                                                                                                                                                    | Full view                                                                                         |
+| ------------------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Workflow            | `/workflows [runId]` | below-editor status line via `formatActivityStatus` (`extensions/shared/activity-status.ts`)                                                                                                              | TUI dashboard, `extensions/workflows/dashboard.ts`                                                |
+| Subagent            | `/subagents`, `/btw` | below-editor status line via a **separate**, self-contained `formatActivityStatus` copy (`extensions/subagents/src/format.ts:1-4`, explicitly commented "self-contained copies of the v1 shared helpers") | full-screen picker + interactive takeover, `extensions/subagents/src/ui/takeover.ts`              |
+| Background terminal | `/ps`                | above-editor one-line widget (`extensions/background-terminals/index.ts:84-117`), a different UI slot (`setWidget`, not `setStatus`) from the other two                                                   | two-stage picker → read-only stdout/stderr detail, `extensions/background-terminals/src/ui/ps.ts` |
 
 Note the widget-vs-status split: workflows and subagents both use
 `ctx.ui.setStatus(...)` (a slot presumably meant for one line per category),
 while background-terminals uses `ctx.ui.setWidget(...)` (a different
 above-editor slot). `extensions/subagents/src/format.ts`'s own comment
 records that it duplicated `extensions/shared/activity-status.ts` rather than
-importing it — evidence that even the *existing* shared-helpers effort
+importing it — evidence that even the _existing_ shared-helpers effort
 (`extensions/shared/`) didn't fully take, likely because subagents needed a
 different call shape (`formatActivityStatus(theme, counts)`, no `label`
 parameter) once it grew independently. This is a preview of the coupling risk
@@ -200,7 +200,7 @@ its existing, backend-specific tool. This is deliberately narrower than a
 
 ```ts
 /** Which system produced a JobSummary. Not a queue — just provenance. */
-type JobKind = "workflow" | "subagent" | "background-terminal";
+type JobKind = 'workflow' | 'subagent' | 'background-terminal';
 
 /**
  * Coarse, cross-kind lifecycle bucket. Deliberately fewer states than any
@@ -208,7 +208,7 @@ type JobKind = "workflow" | "subagent" | "background-terminal";
  * list view, not a replacement for each tool's own status field, which
  * remains the authoritative, richer value returned by e.g. subagent_check.
  */
-type JobLifecycle = "running" | "settled";
+type JobLifecycle = 'running' | 'settled';
 // "settled" covers workflow completed/failed/aborted, subagent done/error,
 // and background-terminal done/failed/killed alike — deliberately collapsed
 // because a combined list view's first question is "still going or not,"
@@ -218,32 +218,32 @@ type JobLifecycle = "running" | "settled";
 /** Read-only rollup row. Never returned in place of a kind-specific detail
  * view; only used to answer "what's out there right now." */
 interface JobSummary {
-  readonly id: string;               // opaque; format is kind-specific (§2.1)
-  readonly kind: JobKind;
-  readonly title: string;            // workflow name / subagent title / terminal title
-  readonly lifecycle: JobLifecycle;
-  readonly startedAt: number;
-  readonly settledAt?: number;
-  readonly progress?: string;        // kind-specific one-line summary, e.g.
-                                      // "3/5 agents", "12 turns", "exit 0" —
-                                      // pre-formatted by the owning extension,
-                                      // never parsed back out by a consumer
-  readonly errorText?: string;
-  /** Where to find full output. A pointer, not the output itself — matches
-   * §2.5's finding that retention policy differs per kind and must stay so. */
-  readonly outputPointer?:
-    | { readonly type: "artifact-dir"; readonly path: string }   // workflow
-    | { readonly type: "session-file"; readonly path: string }  // subagent
-    | { readonly type: "spill-file"; readonly path?: string };  // terminal
-  /** Capability flags, not booleans-as-behavior. A consumer must branch on
-   * these before offering an action, never assume every kind supports every
-   * verb (§2.4's cancel-tool gap is exactly why this exists). */
-  readonly capabilities: {
-    readonly cancelable: boolean;   // workflows: false today (§2.4)
-    readonly resumable: false;      // always false; see plan 015 — no kind
-                                     // has a safe resume path today
-    readonly restartable: boolean;  // true only for subagents (idle restart)
-  };
+	readonly id: string; // opaque; format is kind-specific (§2.1)
+	readonly kind: JobKind;
+	readonly title: string; // workflow name / subagent title / terminal title
+	readonly lifecycle: JobLifecycle;
+	readonly startedAt: number;
+	readonly settledAt?: number;
+	readonly progress?: string; // kind-specific one-line summary, e.g.
+	// "3/5 agents", "12 turns", "exit 0" —
+	// pre-formatted by the owning extension,
+	// never parsed back out by a consumer
+	readonly errorText?: string;
+	/** Where to find full output. A pointer, not the output itself — matches
+	 * §2.5's finding that retention policy differs per kind and must stay so. */
+	readonly outputPointer?:
+		| { readonly type: 'artifact-dir'; readonly path: string } // workflow
+		| { readonly type: 'session-file'; readonly path: string } // subagent
+		| { readonly type: 'spill-file'; readonly path?: string }; // terminal
+	/** Capability flags, not booleans-as-behavior. A consumer must branch on
+	 * these before offering an action, never assume every kind supports every
+	 * verb (§2.4's cancel-tool gap is exactly why this exists). */
+	readonly capabilities: {
+		readonly cancelable: boolean; // workflows: false today (§2.4)
+		readonly resumable: false; // always false; see plan 015 — no kind
+		// has a safe resume path today
+		readonly restartable: boolean; // true only for subagents (idle restart)
+	};
 }
 
 /** Read-only aggregator. Never mutates any manager's state; never exposes
@@ -251,8 +251,8 @@ interface JobSummary {
  * tool to call and, worse, imply a uniform trust/authorization story that
  * §2.6 shows does not exist. */
 interface JobSurface {
-  list(): ReadonlyArray<JobSummary>;
-  get(id: string): JobSummary | undefined;
+	list(): ReadonlyArray<JobSummary>;
+	get(id: string): JobSummary | undefined;
 }
 ```
 
@@ -263,19 +263,19 @@ would need a new, explicit type, not a flipped flag on this one.
 
 ### 3.2 Mapping the current tools onto it
 
-| Current source | Maps to `JobSummary` how |
-|---|---|
-| `WorkflowDetails` (`model.ts:80-97`) via `listRuns()`'s `RunSummary` | `id: runId`, `title: name ?? runId`, `lifecycle: status === "running" ? "running" : "settled"`, `progress: "${done}/${total} agents"`, `outputPointer: {type: "artifact-dir", path: runDir}`, `capabilities.cancelable: false` (§2.4), `capabilities.restartable: false` |
-| `SubagentSnapshot` (`extensions/subagents/src/domain.ts:192-214`) | `id`, `title`, `lifecycle` from `status`, `progress: "${turns} turns"`, `outputPointer: {type: "session-file", path: meta.sessionFilePath}` (absent for a still-live in-memory-only pi session, matching today's optional field), `capabilities.cancelable: true`, `capabilities.restartable: true` (idle restart via `send()`) |
-| `TerminalSnapshot` (`extensions/background-terminals/src/domain.ts:27-47`) | `id`, `title`, `lifecycle` from `status`, `progress: formatExit(snap)`, `outputPointer: {type: "spill-file", path: stdout.spillPath}`, `capabilities.cancelable: true`, `capabilities.restartable: false` |
+| Current source                                                             | Maps to `JobSummary` how                                                                                                                                                                                                                                                                                                        |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `WorkflowDetails` (`model.ts:80-97`) via `listRuns()`'s `RunSummary`       | `id: runId`, `title: name ?? runId`, `lifecycle: status === "running" ? "running" : "settled"`, `progress: "${done}/${total} agents"`, `outputPointer: {type: "artifact-dir", path: runDir}`, `capabilities.cancelable: false` (§2.4), `capabilities.restartable: false`                                                        |
+| `SubagentSnapshot` (`extensions/subagents/src/domain.ts:192-214`)          | `id`, `title`, `lifecycle` from `status`, `progress: "${turns} turns"`, `outputPointer: {type: "session-file", path: meta.sessionFilePath}` (absent for a still-live in-memory-only pi session, matching today's optional field), `capabilities.cancelable: true`, `capabilities.restartable: true` (idle restart via `send()`) |
+| `TerminalSnapshot` (`extensions/background-terminals/src/domain.ts:27-47`) | `id`, `title`, `lifecycle` from `status`, `progress: formatExit(snap)`, `outputPointer: {type: "spill-file", path: stdout.spillPath}`, `capabilities.cancelable: true`, `capabilities.restartable: false`                                                                                                                       |
 
 No mapping requires inventing new behavior on any backend, inferring an
 unsafe capability, or losing a field a current tool relies on — each row is a
-pure, lossy *projection* of state that already exists, computed by the owning
+pure, lossy _projection_ of state that already exists, computed by the owning
 extension (not by a new shared engine reading foreign internals). This
 satisfies Step 2's verification requirement.
 
-### 3.3 What this model deliberately does *not* unify
+### 3.3 What this model deliberately does _not_ unify
 
 - **No shared trust flag.** §2.6 showed three different trust postures.
   `JobSummary` has no `trusted: boolean` field at all — trust is an
@@ -283,7 +283,7 @@ satisfies Step 2's verification requirement.
   `execute()`, and re-exposing it on a read model risks exactly the "stale
   trusted bit" privilege-escalation shape plan 015 §5.2 already flagged for
   workflow recovery. If a future consumer needs to show "was this trusted,"
-  it should show the *decision's provenance* (e.g. "ran in project dir" vs.
+  it should show the _decision's provenance_ (e.g. "ran in project dir" vs.
   "ran in externally-trusted dir"), not a boolean that could be mistaken for
   a live authorization check.
 - **No generic cancel/resume verb.** §2.4 and §3.1 above.
@@ -291,7 +291,7 @@ satisfies Step 2's verification requirement.
   kind-scoped; a consumer must know `kind` before doing anything with `id`
   beyond display.
 - **No shared retention/output storage.** §2.5 — `outputPointer` only says
-  *where*, never reads or caches the content itself, and never implies a
+  _where_, never reads or caches the content itself, and never implies a
   common TTL.
 
 ---
@@ -393,7 +393,7 @@ decline Phase 2+ if any of the following hold, now or after trying Phase 2:
    legitimate, low-cost way to falsify the premise — better to have spent one
    small additive phase finding that out than a larger up-front rewrite.
 
-None of these are hard blockers *today* — this section exists so a future
+None of these are hard blockers _today_ — this section exists so a future
 implementer (or reviewer) has explicit language to invoke if any of them
 start to bite mid-implementation, per the plan's STOP-condition discipline.
 

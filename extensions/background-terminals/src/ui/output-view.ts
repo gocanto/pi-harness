@@ -5,23 +5,23 @@
  * desync the TUI renderer and smear the overlay.
  */
 
-import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
+import { wrapTextWithAnsi } from '@earendil-works/pi-tui';
 
 // OSC strings (window titles, hyperlinks, etc.) end in BEL or ST. Strip them
 // before the generic escape/control pass so their payload never becomes
 // visible text after only the leading ESC byte is removed.
 const OSC_PATTERN =
-  // eslint-disable-next-line no-control-regex
-  /(?:\u001b\]|\u009d)(?:[^\u0007\u001b\u009c]|\u001b(?!\\))*(?:\u0007|\u001b\\|\u009c)/g;
+	// eslint-disable-next-line no-control-regex
+	/(?:\u001b\]|\u009d)(?:[^\u0007\u001b\u009c]|\u001b(?!\\))*(?:\u0007|\u001b\\|\u009c)/g;
 // Standards-shaped CSI matcher: parameters are deliberately unbounded; a
 // five-digit cursor movement is still one control sequence, not visible text.
 const CSI_PATTERN =
-  // eslint-disable-next-line no-control-regex
-  /(?:\u001b\[|\u009b)[0-?]*[ -/]*[@-~]/g;
+	// eslint-disable-next-line no-control-regex
+	/(?:\u001b\[|\u009b)[0-?]*[ -/]*[@-~]/g;
 // Remaining two-byte/charset escape forms (for example ESC ( 0).
 const ESCAPE_PATTERN =
-  // eslint-disable-next-line no-control-regex
-  /\u001b(?:[()][0-2A-Z]|[ -/]*[@-~])/g;
+	// eslint-disable-next-line no-control-regex
+	/\u001b(?:[()][0-2A-Z]|[ -/]*[@-~])/g;
 
 /**
  * Strip raw ANSI codes, expand tabs, and drop control chars. Terminal-expanded
@@ -29,36 +29,45 @@ const ESCAPE_PATTERN =
  * TUI, which desyncs the renderer.
  */
 export function sanitizeText(text: string) {
-  return text
-    .replace(OSC_PATTERN, "")
-    .replace(CSI_PATTERN, "")
-    .replace(ESCAPE_PATTERN, "")
-    .replaceAll("\t", "  ")
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, "");
+	return (
+		text
+			.replace(OSC_PATTERN, '')
+			.replace(CSI_PATTERN, '')
+			.replace(ESCAPE_PATTERN, '')
+			.replaceAll('\t', '  ')
+			// eslint-disable-next-line no-control-regex
+			.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '')
+	);
 }
 
 /** Split, sanitize, and wrap a stream's text into display lines. */
 export function buildOutputLines(text: string, width: number) {
-  const safeWidth = Math.max(10, width);
-  const out: string[] = [];
-  for (const raw of text.split("\n")) {
-    // Carriage-return progress lines (npm, cargo): keep only the final state.
-    const segments = raw.split("\r");
-    const finalSegment = segments.at(-1) ?? "";
-    const lastSegment =
-      finalSegment || [...segments].reverse().find((segment) => segment) || "";
-    const clean = sanitizeText(lastSegment);
-    if (clean.length === 0) {
-      out.push("");
-      continue;
-    }
-    out.push(...wrapTextWithAnsi(clean, safeWidth));
-  }
-  // Drop one trailing empty line from a trailing "\n" so the tail pin sits
-  // on the last real output line.
-  if (out.length > 0 && out[out.length - 1] === "") out.pop();
-  return out;
+	const safeWidth = Math.max(10, width);
+	const out: string[] = [];
+
+	for (const raw of text.split('\n')) {
+		// Carriage-return progress lines (npm, cargo): keep only the final state.
+		const segments = raw.split('\r');
+		const finalSegment = segments.at(-1) ?? '';
+
+		const lastSegment = finalSegment || [...segments].reverse().find((segment) => segment) || '';
+
+		const clean = sanitizeText(lastSegment);
+
+		if (clean.length === 0) {
+			out.push('');
+			continue;
+		}
+
+		out.push(...wrapTextWithAnsi(clean, safeWidth));
+	}
+	// Drop one trailing empty line from a trailing "\n" so the tail pin sits
+	// on the last real output line.
+	if (out.length > 0 && out[out.length - 1] === '') {
+		out.pop();
+	}
+
+	return out;
 }
 
 /**
@@ -67,16 +76,19 @@ export function buildOutputLines(text: string, width: number) {
  * scrolling) must not re-wrap megabytes.
  */
 export function createOutputLineCache() {
-  let key: string | undefined;
-  let lines: string[] = [];
-  return {
-    get(text: string, version: number, width: number) {
-      const nextKey = `${version}:${width}`;
-      if (key !== nextKey) {
-        key = nextKey;
-        lines = buildOutputLines(text, width);
-      }
-      return lines;
-    },
-  };
+	let key: string | undefined;
+	let lines: string[] = [];
+
+	return {
+		get(text: string, version: number, width: number) {
+			const nextKey = `${version}:${width}`;
+
+			if (key !== nextKey) {
+				key = nextKey;
+				lines = buildOutputLines(text, width);
+			}
+
+			return lines;
+		},
+	};
 }
