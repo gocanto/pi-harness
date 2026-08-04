@@ -13,8 +13,10 @@
 > §8.1 for the rationale and the deliberate-upgrade procedure. Earlier drafts of this guide
 > recommended an exact `4.0.0-beta.98` pin; that recommendation is stale and superseded.
 >
-> Audience: the agents migrating `firecrawl-search`, `ask-user`, `model-info`,
-> `git-info`, `ui-customization`, and `copy-all`.
+> Audience: extensions that have a genuine Effect-based async core, such as
+> `subagents`, `background-terminals`, and `file-search`. The simpler `git-info`,
+> `summaries`, `ask-user`, `model-info`, `ui-customization`, and `copy-all`
+> extensions intentionally use native promises or synchronous TypeScript.
 
 ---
 
@@ -29,24 +31,26 @@ Reach for Effect only where you actually get something from it:
 
 - **Yes:** async work that needs typed errors, cancellation via the tool `AbortSignal`,
   timeouts, retries/polling, or a resource whose lifetime must outlive one call
-  (child process, subscription) → child processes (`git-info`, `copy-all`), the
-  Firecrawl SDK calls (`firecrawl-search`), git/gh polling (`git-info`).
+  (child process, subscription) → the long-lived process/session managers and
+  streaming file-search work.
+- **No / barely:** one-shot command adapters such as `git-info` can use a small
+  promise-based runner with an `AbortSignal`; they do not need an Effect runtime.
 - **No / barely:** pure TUI popups and rendering (`ask-user`, `ui-customization`),
-  cross-extension channel plumbing, cost/token bookkeeping (`model-info`). These are
-  synchronous or already-Promise UI code; wrapping them in Effect adds ceremony and no
-  safety. Migrate them by keeping the logic and only touching whatever genuinely async
-  part benefits (usually nothing).
+  cross-extension channel plumbing, cost/token bookkeeping (`model-info`), and
+  simple promise workflows (`summaries`). These are synchronous or already-Promise
+  code; wrapping them in Effect adds ceremony and no safety.
 
 If an extension has no async core worth typing, the "migration" may be just adopting the
 toolchain (§1) and leaving the body plain. Don't invent an Effect layer to have one.
 
 ---
 
-## 1. Per-extension toolchain (copy this exactly)
+## 1. Effect extension toolchain (copy this exactly)
 
-Each extension is its own npm package with its own `node_modules`. Replicate the range
-policy below exactly — every workspace consumer uses the same caret range, and the
-lockfile (`pnpm-lock.yaml`) is what pins the actual resolved version (see §8.1).
+Each extension is its own npm package with its own `node_modules`. For extensions that
+actually use Effect, keep the range policy below synchronized; the lockfile
+(`pnpm-lock.yaml`) pins the resolved version (see §8.1). Extensions with a plain promise
+or synchronous core should not add these Effect dependencies or the language-service plugin.
 
 `package.json`:
 
@@ -60,7 +64,7 @@ lockfile (`pnpm-lock.yaml`) is what pins the actual resolved version (see §8.1)
 		"prepare": "effect-tsgo patch", // patches the Effect LS into the tsgo binary
 	},
 	"dependencies": {
-		"effect": "^4.0.0-beta.99", // same caret range as every other extension
+		"effect": "^4.0.0-beta.99", // same caret range as other Effect extensions
 		"@effect/platform-node": "^4.0.0-beta.99", // only if you touch fs / child processes
 	},
 	"devDependencies": {
@@ -257,14 +261,14 @@ string trimming.
 
 ---
 
-## 5. Recipe: child processes + timeout + polling (git-info, copy-all)
+## 5. Recipe: child processes + timeout + polling
 
-`git-info` shells out to `git`/`gh` with per-command timeouts and polls on an interval;
-`copy-all` pipes text into `pbcopy`. Two viable levels — pick the lightest that fits.
+For long-lived process/session work, use Effect's scoped process and polling APIs. For
+one-shot commands such as `git-info`, a native promise-based adapter with an
+`AbortSignal` and a timer is the lighter choice.
 
-**Simple, one-shot, small:** if all you do is "run a command, capture stdout, with a
-timeout," the Effect win is `Effect.timeout` + interruption killing the child. Use the
-spawner service:
+**Effect-based process work:** when the process is part of a scoped Effect runtime, the
+win is `Effect.timeout` plus interruption killing the child. Use the spawner service:
 
 ```ts
 import { Effect } from 'effect';
@@ -297,10 +301,8 @@ const pollLoop = refresh.pipe(
 const fiber = runtime.runFork(pollLoop); // interrupted by runtime.dispose()
 ```
 
-**When to stay plain:** `copy-all` spawning `pbcopy` is a trivial one-shot with no
-cancellation need — the existing `node:child_process` + Promise wrapper is honestly fine.
-Migrate it only for consistency; if you do, `Effect.callback` around `child.once("exit", …)`
-(see notes §4) is the minimal wrapper. Don't add a service/layer for a clipboard write.
+For a trivial one-shot such as a clipboard write, use `node:child_process` and a Promise.
+Do not add a service or layer merely for consistency.
 
 ---
 
@@ -309,16 +311,15 @@ Migrate it only for consistency; if you do, `Effect.callback` around `child.once
 These are the "leave it mostly plain" cases.
 
 - `ask-user` is a TUI popup that resolves a Promise when the user picks. That Promise already
-  models the one async thing. Effect adds nothing; if you want uniformity, wrap the final
-  await in `Effect.tryPromise` at the boundary and stop there. Do **not** build a service.
+  models the one async thing. Keep it plain and do **not** build a service.
 - `ui-customization` and `model-info` are renderers / event bookkeepers driven by
   `pi.on(...)` and cross-extension channels (`shared/dashboard-state.ts`). Channels are a
   pi-native mechanism — keep them. State counting and formatting stay synchronous TS.
 - If `model-info` has a periodic "live update" tick, the §5 polling pattern applies; but a
   plain timer here is also acceptable since there's no resource to tear down.
 
-The migration bar for these: adopt the toolchain (§1) so they typecheck under TS7 + the
-Effect LS, and only touch runtime code that has a real async/resource concern.
+The migration bar for these is simply to keep the host callbacks and synchronous state
+plain; only introduce Effect when a real async/resource concern appears.
 
 ---
 
@@ -343,11 +344,13 @@ the pinned versions. If a migrated extension fails `check` with `Effect.fork`/`S
 
 ## 8. Don'ts (keep it lean)
 
-1. **Version policy: a shared floating beta range, pinned by the lockfile.** Every
-   workspace consumer declares `effect` and `@effect/platform-node` (and `@effect/tsgo`) as
-   the same caret range — `^4.0.0-beta.99` for `effect`/`@effect/platform-node`,
-   `^0.24.2` for `@effect/tsgo` — rather than an exact version. `pnpm-lock.yaml` is what
-   actually pins the resolved version for reproducible installs (`pnpm install
+1. **Version policy: a shared floating beta range, pinned by the lockfile.** Each
+   Effect-using workspace consumer declares `effect` and, where needed,
+   `@effect/platform-node`/`@effect/tsgo` using the synchronized caret ranges —
+   `^4.0.0-beta.99` for `effect`/`@effect/platform-node` and `^0.24.2` for
+   `@effect/tsgo` — rather than an exact version. Plain extensions should not declare
+   these packages. `pnpm-lock.yaml` pins the resolved version for reproducible installs
+   (`pnpm install
 --frozen-lockfile`), and today that resolves a single version of each package across the
    whole workspace (`pnpm why effect -r` shows exactly one). Rationale: a caret range whose
    base version carries a prerelease tag only admits _other prereleases that share the same

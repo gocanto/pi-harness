@@ -7,8 +7,8 @@
  */
 
 import { Effect } from 'effect';
-import type { SubagentBackend } from '../backend.ts';
-import { PiSession } from './pi/index.ts';
+import type { SubagentBackend } from '@subagents/src/backend.ts';
+import { PiSession } from '@subagents/src/backends/pi/index.ts';
 
 /** The in-process pi subagent backend. */
 export const piBackend: SubagentBackend = {

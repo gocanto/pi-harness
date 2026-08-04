@@ -1,10 +1,10 @@
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'vitest';
-import { activationPreferencePath } from './activation.ts';
-import workflowsExtension from './index.ts';
+import { activationPreferencePath } from '@workflows/activation.ts';
+import workflowsExtension from '@workflows/index.ts';
 
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from '@earendil-works/pi-coding-agent';
 

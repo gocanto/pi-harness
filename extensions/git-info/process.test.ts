@@ -1,15 +1,13 @@
-import { assert } from '../../tests/test-assert.ts';
-import { afterAll, test } from 'vitest';
-import { runCommand } from './src/process.ts';
-import { createRuntime } from './src/runtime.ts';
+import { assert } from '@tests/test-assert.ts';
+import { test } from 'vitest';
+import { runCommand } from '@git-info/src/process.ts';
 
-const runtime = createRuntime();
-
-afterAll(async () => {
-	await runtime.dispose();
-});
-
-const runNode = (source: string, timeout = 1_000) => runtime.runPromise(runCommand(process.execPath, ['--input-type=module', '--eval', source], process.cwd(), timeout));
+const runNode = (source: string, timeout = 1_000) => runCommand(
+	process.execPath,
+	['--input-type=module', '--eval', source],
+	process.cwd(),
+	timeout,
+);
 
 test('captures output and tolerates command failures', async () => {
 	const success = await runNode('process.stdout.write("out"); process.stderr.write("err")');
@@ -24,7 +22,12 @@ test('captures output and tolerates command failures', async () => {
 test('renders platform failures without making callers handle them', async () => {
 	const command = 'git-info-command-that-does-not-exist';
 
-	const result = await runtime.runPromise(runCommand(command, [], process.cwd(), 1_000));
+	const result = await runCommand(
+		command,
+		[],
+		process.cwd(),
+		1_000,
+	);
 
 	assert.equal(result.code, 1);
 	assert.match(result.stderr, new RegExp(`Failed to run ${command}:`));

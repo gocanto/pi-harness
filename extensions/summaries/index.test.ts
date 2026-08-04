@@ -1,7 +1,7 @@
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import { test } from 'vitest';
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
-import summariesExtension from './index.ts';
+import summariesExtension from '@summaries/index.ts';
 
 test('registers only the recap renderer, command, and bounded lifecycle hooks', () => {
 	const events = new Set<string>();

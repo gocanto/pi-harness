@@ -1,9 +1,9 @@
 import type { ContextUsage, ExtensionContext } from '@earendil-works/pi-coding-agent';
 import type { AgentSession, AgentSessionEvent } from '@earendil-works/pi-coding-agent';
-import type { AgentUsage, TranscriptEntry } from '../model.ts';
-import { emptyUsage } from '../model.ts';
-import type { WorkflowModel } from '../runner.ts';
-import { safeStringify, truncateUtf8 } from '../serialization.ts';
+import type { AgentUsage, TranscriptEntry } from '@workflows/model.ts';
+import { emptyUsage } from '@workflows/model.ts';
+import type { WorkflowModel } from '@workflows/runner.ts';
+import { safeStringify, truncateUtf8 } from '@workflows/serialization.ts';
 
 const TRANSCRIPT_ENTRY_MAX_BYTES = 16 * 1024;
 const TRANSCRIPT_TOTAL_MAX_BYTES = 256 * 1024;

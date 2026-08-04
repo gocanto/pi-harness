@@ -17,8 +17,8 @@ Framework entrypoints (`index.ts` extension registrations, TUI render callbacks,
 
 - `DeferredResultDelivery` — shared exactly-once delivery state machine.
 - `ProcessTreeController` — platform shell invocation and process-tree termination.
-- `EffectCommandRunner` — command execution adapter for git.
-- `RefreshCoordinator` — refresh concurrency policy.
+- `ProcessCommandRunner` — promise-based command execution adapter for git.
+- `RefreshCoordinator` — promise-based refresh concurrency policy.
 - `SubagentSnapshotReducer` — normalized event-to-snapshot state transitions.
 - `ContextUtilizationFormatter`, `ActivityStatusFormatter`, and snapshot formatters — pure presentation policies.
 - `OutputBuffer` — bounded stream capture and spill coordination.
@@ -36,6 +36,6 @@ Concern packages prevent god files as features grow:
 - `git-info/src/changed-files-view/` separates git loading, terminal sanitization, and TUI rendering.
 - `workflows/registry.ts` owns live-run state and persisted run read models; `workflows/tool.ts` owns tool execution and presentation.
 
-Effect `Context.Service` values remain the dependency-injection ports. Concrete classes are constructed in the corresponding runtime layer and injected into those ports; this keeps ambient process and runtime concerns out of domain objects.
+Effect remains limited to extensions with long-lived process/session lifecycles. The git-info and summaries extensions use native promises, AbortSignals, and explicit adapters instead; this keeps the dependency and cancellation model proportional to each concern.
 
 Future refactors should extract another class only when it owns a cohesive policy or lifecycle. Do not create classes that merely forward one call, and do not turn host-required callbacks or tiny pure value helpers into artificial objects.

@@ -1,51 +1,46 @@
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import { test } from 'vitest';
-import { Deferred, Effect, Fiber } from 'effect';
-import { makeRefreshCoordinator } from './src/refresh-coordinator.ts';
+import { makeRefreshCoordinator } from '@git-info/src/refresh-coordinator.ts';
 
 test('an explicit refresh waits for an active background refresh', async () => {
 	const coordinator = makeRefreshCoordinator();
 
 	let state = 0;
+	let resolveStarted: (() => void) | undefined;
+	let resolveRelease: (() => void) | undefined;
 
-	const result = await Effect.runPromise(
-		Effect.gen(function* () {
-			const started = yield* Deferred.make<void>();
-			const release = yield* Deferred.make<void>();
+	const started = new Promise<void>((resolve) => {
+		resolveStarted = resolve;
+	});
+	const release = new Promise<void>((resolve) => {
+		resolveRelease = resolve;
+	});
 
-			const background = yield* Effect.forkChild(
-				coordinator.run(
-					Effect.gen(function* () {
-						yield* Deferred.succeed(started, undefined);
-						yield* Deferred.await(release);
-						state = 1;
-					}),
-				),
-			);
+	const background = coordinator.run(async () => {
+		resolveStarted?.();
 
-			yield* Deferred.await(started);
-			yield* coordinator.runIfIdle(
-				Effect.sync(() => {
-					state = 99;
-				}),
-			);
+		await release;
 
-			const forced = yield* Effect.forkChild(
-				coordinator.run(
-					Effect.sync(() => {
-						state += 1;
+		state = 1;
+	});
 
-						return state;
-					}),
-				),
-			);
+	await started;
 
-			yield* Deferred.succeed(release, undefined);
-			yield* Fiber.join(background);
+	await coordinator.runIfIdle(async () => {
+		state = 99;
+	});
 
-			return yield* Fiber.join(forced);
-		}),
-	);
+	const forced = coordinator.run(async () => {
+		state += 1;
+
+		return state;
+	});
+
+	resolveRelease?.();
+
+	await background;
+
+	const result = await forced;
 
 	assert.equal(result, 2);
 	assert.equal(state, 2);

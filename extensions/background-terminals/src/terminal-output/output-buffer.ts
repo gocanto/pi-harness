@@ -1,4 +1,4 @@
-import type { OutputView } from '../domain.ts';
+import type { OutputView } from '@background-terminals/src/domain.ts';
 
 /**
  * Bounded in-memory capture for one process stream.

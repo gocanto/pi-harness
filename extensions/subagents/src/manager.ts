@@ -11,16 +11,16 @@
  * and issue fire-and-forget commands without touching the Effect runtime.
  */
 
-import type { SubagentBackend, SubagentSession } from './backend.ts';
-import { BackendRegistry } from './backend.ts';
+import type { SubagentBackend, SubagentSession } from '@subagents/src/backend.ts';
+import { BackendRegistry } from '@subagents/src/backend.ts';
 
 import { Context, Effect, Exit, Fiber, Layer, Result, Scope, Stream } from 'effect';
 
-import type { BackendName, LiveToolState, RunOutcome, SpawnTask, SubagentSnapshot, SubagentStatus } from './domain.ts';
+import type { BackendName, LiveToolState, RunOutcome, SpawnTask, SubagentSnapshot, SubagentStatus } from '@subagents/src/domain.ts';
 
-import { BackendUnavailableError, ConcurrencyLimitError, SendError, SpawnError } from './domain.ts';
+import { BackendUnavailableError, ConcurrencyLimitError, SendError, SpawnError } from '@subagents/src/domain.ts';
 
-import { SubagentSnapshotReducer, type MutableSubagentSnapshot } from './snapshot-reducer.ts';
+import { SubagentSnapshotReducer, type MutableSubagentSnapshot } from '@subagents/src/snapshot-reducer.ts';
 
 export const MAX_RUNNING = 4;
 

@@ -1,6 +1,6 @@
 import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Key, matchesKey, truncateToWidth, visibleWidth, type Component } from '@earendil-works/pi-tui';
-import type { ChangedFile, ChangedFilesResult, LoadFileDiff } from './types.ts';
+import type { ChangedFile, ChangedFilesResult, LoadFileDiff } from '@git-info/src/changed-files-view/types.ts';
 
 type CustomFactory = Parameters<ExtensionContext['ui']['custom']>[0];
 

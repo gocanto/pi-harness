@@ -1,7 +1,7 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { SDKAssistantMessage, SDKResultMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { TranscriptPart } from '../../domain.ts';
+import type { TranscriptPart } from '@subagents/src/domain.ts';
 
 const PREVIEW_MAX_LENGTH = 4_096;
 

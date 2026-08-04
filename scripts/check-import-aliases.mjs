@@ -1,0 +1,26 @@
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+
+const sourceExtensions = new Set(['.cjs', '.js', '.jsx', '.mjs', '.ts', '.tsx', '.vue']);
+const moduleSpecifierPattern = /(?:\bfrom\s*|\bimport\s*\(\s*)(['"])(\.{1,2}\/[^'"]+)\1/g;
+const files = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' }).split('\0');
+const violations = [];
+
+for (const file of files) {
+	if (!sourceExtensions.has(file.slice(file.lastIndexOf('.')))) {
+		continue;
+	}
+
+	const source = readFileSync(file, 'utf8');
+	for (const match of source.matchAll(moduleSpecifierPattern)) {
+		violations.push(`${file}: ${match[2]}`);
+	}
+}
+
+if (violations.length > 0) {
+	console.error('Relative module specifiers are not allowed. Use a configured Vite alias:');
+	for (const violation of violations) {
+		console.error(`- ${violation}`);
+	}
+	process.exitCode = 1;
+}

@@ -7,11 +7,6 @@
     "test": "vitest run --config ../../vitest.config.ts ../../extensions/git-info/*.test.ts"
   },
   "devDependencies": {
-    "@effect/tsgo": "^0.24.2",
     "typescript": "^7.0.2"
-  },
-  "dependencies": {
-    "@effect/platform-node": "^4.0.0-beta.99",
-    "effect": "^4.0.0-beta.99"
   }
 }

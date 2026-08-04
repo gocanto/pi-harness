@@ -11,13 +11,13 @@
 
 import type { Cause, Scope } from 'effect';
 import { Effect, Queue, Stream } from 'effect';
-import type { SubagentBackend, SubagentSession } from '../backend.ts';
-import { SendError, SpawnError } from '../domain.ts';
-import { ClaudeBinaryResolver, ClaudeInput, ClaudeProtocol, ClaudeTeardown } from './claude/index.ts';
+import type { SubagentBackend, SubagentSession } from '@subagents/src/backend.ts';
+import { SendError, SpawnError } from '@subagents/src/domain.ts';
+import { ClaudeBinaryResolver, ClaudeInput, ClaudeProtocol, ClaudeTeardown } from '@subagents/src/backends/claude/index.ts';
 
 import { query, type Options, type SDKAssistantMessage, type SDKMessage, type SDKResultMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
 
-import type { QueuedMessage, ReasoningEffort, RunOutcome, SpawnTask, SubagentEvent, SubagentMeta } from '../domain.ts';
+import type { QueuedMessage, ReasoningEffort, RunOutcome, SpawnTask, SubagentEvent, SubagentMeta } from '@subagents/src/domain.ts';
 
 const CLAUDE_CONTEXT_WINDOW = 200_000;
 const INTERRUPT_TIMEOUT_MS = 2_000;

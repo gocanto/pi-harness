@@ -1,12 +1,12 @@
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'vitest';
-import { persistWorkflowJson } from './artifacts.ts';
-import { emptyUsage, type AgentRecord, type WorkflowDetails } from './model.ts';
+import { persistWorkflowJson } from '@workflows/artifacts.ts';
+import { emptyUsage, type AgentRecord, type WorkflowDetails } from '@workflows/model.ts';
 
-import { loadRunEntries, WorkflowRunCache, type RunEntry } from './dashboard.ts';
+import { loadRunEntries, WorkflowRunCache, type RunEntry } from '@workflows/dashboard.ts';
 
 const SESSION_ID = 'session_fixture';
 

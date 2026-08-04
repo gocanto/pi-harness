@@ -2,13 +2,13 @@ import { randomBytes } from 'node:crypto';
 import * as path from 'node:path';
 import { Container, Markdown, Spacer, Text } from '@earendil-works/pi-tui';
 import { Type, type Static } from 'typebox';
-import { createWorkflowPersistence, persistWorkflowJson } from './artifacts.ts';
-import { RunController } from './controller.ts';
-import { extractMeta, prepareWorkflowScript, type WorkflowMeta } from './meta.ts';
-import { createWorkflowResources, runAgent, type ThinkingLevel, type WorkflowModel } from './runner.ts';
-import { runWorkflowSandbox } from './sandbox.ts';
-import { writeFileAtomic } from './serialization.ts';
-import type { WorkflowRunRegistry } from './registry.ts';
+import { createWorkflowPersistence, persistWorkflowJson } from '@workflows/artifacts.ts';
+import { RunController } from '@workflows/controller.ts';
+import { extractMeta, prepareWorkflowScript, type WorkflowMeta } from '@workflows/meta.ts';
+import { createWorkflowResources, runAgent, type ThinkingLevel, type WorkflowModel } from '@workflows/runner.ts';
+import { runWorkflowSandbox } from '@workflows/sandbox.ts';
+import { writeFileAtomic } from '@workflows/serialization.ts';
+import type { WorkflowRunRegistry } from '@workflows/registry.ts';
 import { getAgentDir, getMarkdownTheme, keyHint, type ExtensionAPI } from '@earendil-works/pi-coding-agent';
 
 import {
@@ -26,7 +26,7 @@ import {
 	SQUARE,
 	type AgentRecord,
 	type WorkflowDetails,
-} from './model.ts';
+} from '@workflows/model.ts';
 
 import {
 	buildBackgroundWorkflowFollowUp,
@@ -37,7 +37,7 @@ import {
 	WORKFLOW_PROMPT_GUIDELINES,
 	WORKFLOW_PROMPT_SNIPPET,
 	WORKFLOW_TOOL_DESCRIPTION,
-} from './prompt.ts';
+} from '@workflows/prompt.ts';
 
 const PREVIEW_LENGTH = 200;
 const EMIT_INTERVAL_MS = 120;

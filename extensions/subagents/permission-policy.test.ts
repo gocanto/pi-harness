@@ -7,10 +7,10 @@
  * deterministic and safe to run in CI.
  */
 
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import { test } from 'vitest';
-import { claudePermissionOptions } from './src/backends/claude.ts';
-import { codexSandboxOptions } from './src/backends/codex.ts';
+import { claudePermissionOptions } from '@subagents/src/backends/claude.ts';
+import { codexSandboxOptions } from '@subagents/src/backends/codex.ts';
 
 test('Claude: a trusted cwd gets bypassPermissions', () => {
 	assert.deepEqual(claudePermissionOptions(true), {

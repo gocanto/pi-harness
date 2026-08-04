@@ -1,4 +1,4 @@
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
@@ -14,7 +14,7 @@ import {
 	resolveStandaloneChildProjectTrust,
 	shutdownAndDisposeChildSession,
 	type DisposableChildSession,
-} from './child-session.ts';
+} from '@shared/child-session.ts';
 
 async function withTempDir(run: (directory: string) => Promise<void>) {
 	const directory = await mkdtemp(

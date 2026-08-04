@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getAgentDir, type ExtensionContext } from '@earendil-works/pi-coding-agent';
-import type { AgentRecord, TranscriptEntry, WorkflowDetails } from '../model.ts';
+import type { AgentRecord, TranscriptEntry, WorkflowDetails } from '@workflows/model.ts';
 
 /** One workflow run available to the dashboard. */
 export interface RunEntry {

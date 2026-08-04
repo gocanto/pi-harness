@@ -1,7 +1,7 @@
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import { test } from 'vitest';
 
-import { reconcileDashboardSelection, type DashboardSelection } from './src/ui/takeover.ts';
+import { reconcileDashboardSelection, type DashboardSelection } from '@subagents/src/ui/takeover.ts';
 
 test('dashboard selection follows its subagent id and falls back by row', () => {
 	const selection: DashboardSelection = { id: 'sa-7', index: 6 };

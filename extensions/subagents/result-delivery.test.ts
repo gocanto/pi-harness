@@ -1,6 +1,6 @@
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import { test } from 'vitest';
-import { createDeferredResultDelivery } from './src/result-delivery.ts';
+import { createDeferredResultDelivery } from '@subagents/src/result-delivery.ts';
 
 test('a result consumed by a later wait is not delivered', () => {
 	const delivery = createDeferredResultDelivery<{

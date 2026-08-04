@@ -1,6 +1,6 @@
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import { test } from 'vitest';
-import { MAX_AGENT_CALLS, RunController } from './controller.ts';
+import { MAX_AGENT_CALLS, RunController } from '@workflows/controller.ts';
 
 const delay = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 

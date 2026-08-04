@@ -6,16 +6,16 @@
  * the real pi backend for its cheap registry precondition.
  */
 
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import { test } from 'vitest';
 import { Effect, Layer, ManagedRuntime } from 'effect';
-import { BackendRegistry, type SubagentBackend } from './src/backend.ts';
-import { piBackend } from './src/backends/pi.ts';
-import { makeStubBackend } from './src/backends/stub.ts';
-import type { BackendName, ParentContext, SpawnTask } from './src/domain.ts';
-import { runTool } from './src/runtime.ts';
+import { BackendRegistry, type SubagentBackend } from '@subagents/src/backend.ts';
+import { piBackend } from '@subagents/src/backends/pi.ts';
+import { makeStubBackend } from '@subagents/src/backends/stub.ts';
+import type { BackendName, ParentContext, SpawnTask } from '@subagents/src/domain.ts';
+import { runTool } from '@subagents/src/runtime.ts';
 
-import { SubagentManager, SubagentManagerLive, type SubagentManagerShape } from './src/manager.ts';
+import { SubagentManager, SubagentManagerLive, type SubagentManagerShape } from '@subagents/src/manager.ts';
 
 const TestRegistryLive = Layer.sync(BackendRegistry, () => {
 	const backends: SubagentBackend[] = [

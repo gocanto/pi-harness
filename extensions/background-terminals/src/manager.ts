@@ -14,20 +14,20 @@
 
 import { spawn } from 'node:child_process';
 import type * as fs from 'node:fs';
-import { OutputBuffer, OutputSpillManager, RETAINED_PER_STREAM } from './terminal-output/index.ts';
-import { ProcessTreeController } from './process-tree/index.ts';
-import { TerminalEntry, TerminalRegistry, type MutableTerminalSnapshot } from './terminal-manager/index.ts';
+import { OutputBuffer, OutputSpillManager, RETAINED_PER_STREAM } from '@background-terminals/src/terminal-output/index.ts';
+import { ProcessTreeController } from '@background-terminals/src/process-tree/index.ts';
+import { TerminalEntry, TerminalRegistry, type MutableTerminalSnapshot } from '@background-terminals/src/terminal-manager/index.ts';
 
 import { Context, Deferred, Effect, Exit, FiberSet, Layer, Scope } from 'effect';
 
-import { ConcurrencyLimitError, formatExit, SpawnError, UnknownTerminalError, type TerminalSnapshot, type TerminalStatus } from './domain.ts';
+import { ConcurrencyLimitError, formatExit, SpawnError, UnknownTerminalError, type TerminalSnapshot, type TerminalStatus } from '@background-terminals/src/domain.ts';
 
 export const MAX_RUNNING = 8;
 
 export const MAX_TRACKED = 32;
 
 /** In-memory retained cap per stream. */
-export { MAX_SPILL_BYTES_PER_STREAM, RETAINED_PER_STREAM } from './terminal-output/index.ts';
+export { MAX_SPILL_BYTES_PER_STREAM, RETAINED_PER_STREAM } from '@background-terminals/src/terminal-output/index.ts';
 
 const STOP_TIMEOUT_MS = 5_000;
 /** SIGTERM is normally enough; the second deadline covers a wedged process. */

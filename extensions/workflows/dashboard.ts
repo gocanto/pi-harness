@@ -12,7 +12,7 @@
  */
 
 import * as path from 'node:path';
-import { writeFileAtomic } from './serialization.ts';
+import { writeFileAtomic } from '@workflows/serialization.ts';
 import { getAgentDir, type ExtensionContext, type KeybindingsManager } from '@earendil-works/pi-coding-agent';
 import { Key, matchesKey, truncateToWidth, visibleWidth, wrapTextWithAnsi, type TUI } from '@earendil-works/pi-tui';
 
@@ -34,7 +34,7 @@ import {
 	type PhaseGroup,
 	type TranscriptEntry,
 	type WorkflowDetails,
-} from './model.ts';
+} from '@workflows/model.ts';
 
 const NOTICE_TTL_MS = 4000;
 const MIN_HEIGHT = 10;
@@ -48,9 +48,9 @@ function wrapSelection(index: number, delta: number, length: number): number {
 	return (index + delta + length) % length;
 }
 
-import { sessionWorkflowRunIds, WorkflowRunCache, type RunEntry } from './dashboard/index.ts';
+import { sessionWorkflowRunIds, WorkflowRunCache, type RunEntry } from '@workflows/dashboard/index.ts';
 
-export { loadRunEntries, sessionWorkflowRunIds, WorkflowRunCache, type RunEntry } from './dashboard/index.ts';
+export { loadRunEntries, sessionWorkflowRunIds, WorkflowRunCache, type RunEntry } from '@workflows/dashboard/index.ts';
 
 function runsDir(): string {
 	return path.join(getAgentDir(), 'workflows');

@@ -1,10 +1,10 @@
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import { test } from 'vitest';
 import { Effect } from 'effect';
-import { SubagentManager } from './src/manager.ts';
-import { claudeBackend } from './src/backends/claude.ts';
-import type { ParentContext, SpawnTask } from './src/domain.ts';
-import { createSubagentRuntime, runTool } from './src/runtime.ts';
+import { SubagentManager } from '@subagents/src/manager.ts';
+import { claudeBackend } from '@subagents/src/backends/claude.ts';
+import type { ParentContext, SpawnTask } from '@subagents/src/domain.ts';
+import { createSubagentRuntime, runTool } from '@subagents/src/runtime.ts';
 
 const parent: ParentContext = {
 	parentCwd: process.cwd(),

@@ -1,24 +1,39 @@
-import { Effect, Semaphore } from 'effect';
-
-/**
- * Coordinates repository refreshes.
- *
- * Explicit refreshes wait for the single permit. Background refreshes use
- * `runIfIdle` and are dropped when an explicit refresh is already active. The
- * policy belongs to this object rather than to each caller, keeping refresh
- * scheduling separate from git state and UI concerns.
- */
+/** Coordinates serialized refreshes and best-effort background refreshes. */
 export class RefreshCoordinator {
-	private readonly semaphore = Semaphore.makeUnsafe(1);
+	private tail = Promise.resolve();
+	private active = false;
+	private queued = 0;
 
 	/** Run an operation after all earlier refreshes have completed. */
-	run<A, E, R>(effect: Effect.Effect<A, E, R>) {
-		return this.semaphore.withPermit(effect);
+	run<T>(operation: () => Promise<T>) {
+		this.queued += 1;
+
+		const result = this.tail.then(async () => {
+			this.queued -= 1;
+			this.active = true;
+
+			try {
+				return await operation();
+			} finally {
+				this.active = false;
+			}
+		});
+
+		this.tail = result.then(
+			() => undefined,
+			() => undefined,
+		);
+
+		return result;
 	}
 
 	/** Run an operation only when the coordinator is currently idle. */
-	runIfIdle<A, E, R>(effect: Effect.Effect<A, E, R>) {
-		return this.semaphore.withPermitsIfAvailable(1)(effect).pipe(Effect.asVoid);
+	runIfIdle(operation: () => Promise<void>) {
+		if (this.active || this.queued > 0) {
+			return Promise.resolve();
+		}
+
+		return this.run(operation).then(() => undefined);
 	}
 }
 

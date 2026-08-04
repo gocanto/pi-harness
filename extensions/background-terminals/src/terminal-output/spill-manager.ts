@@ -2,8 +2,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { Effect } from 'effect';
-import type { OutputBuffer } from './output-buffer.ts';
-import { MAX_SPILL_BYTES_PER_STREAM, OUTPUT_ERROR_TEXT_MAX_LENGTH } from './limits.ts';
+import type { OutputBuffer } from '@background-terminals/src/terminal-output/output-buffer.ts';
+import { MAX_SPILL_BYTES_PER_STREAM, OUTPUT_ERROR_TEXT_MAX_LENGTH } from '@background-terminals/src/terminal-output/limits.ts';
 
 const FLUSH_TIMEOUT_MS = 1_500;
 

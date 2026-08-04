@@ -2,8 +2,8 @@ import type { ChildProcess } from 'node:child_process';
 import type * as fs from 'node:fs';
 import type { Deferred } from 'effect';
 import { type Scope } from 'effect';
-import type { TerminalSnapshot, TerminalStatus } from '../domain.ts';
-import type { OutputBuffer } from '../terminal-output/index.ts';
+import type { TerminalSnapshot, TerminalStatus } from '@background-terminals/src/domain.ts';
+import type { OutputBuffer } from '@background-terminals/src/terminal-output/index.ts';
 
 /** Mutable snapshot maintained while a terminal process is alive. */
 export interface MutableTerminalSnapshot extends TerminalSnapshot {

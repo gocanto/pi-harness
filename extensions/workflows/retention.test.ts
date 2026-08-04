@@ -1,8 +1,8 @@
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'vitest';
-import { cleanupExpiredWorkflowRuns } from './retention.ts';
+import { cleanupExpiredWorkflowRuns } from '@workflows/retention.ts';
 
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 
@@ -214,6 +214,7 @@ test('cleanup tolerates a missing workflows base directory', () => {
 		tmpdir(),
 		'pi-workflow-retention-missing-nonexistent',
 	);
+
 	const removed = cleanupExpiredWorkflowRuns(
 		missingDir,
 		new Set(),

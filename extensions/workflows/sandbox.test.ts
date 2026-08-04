@@ -1,6 +1,6 @@
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import { test } from 'vitest';
-import { DEFAULT_WORKFLOW_DEADLINE_MS, runWorkflowSandbox } from './sandbox.ts';
+import { DEFAULT_WORKFLOW_DEADLINE_MS, runWorkflowSandbox } from '@workflows/sandbox.ts';
 
 function run(source: string, overrides: Partial<Parameters<typeof runWorkflowSandbox>[0]> = {}) {
 	const abort = new AbortController();

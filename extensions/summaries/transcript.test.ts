@@ -1,8 +1,8 @@
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import { test } from 'vitest';
 import type { SessionEntry } from '@earendil-works/pi-coding-agent';
 
-import { createRunBoundary, getRunEntries, serializeRunTranscript, TRANSCRIPT_MAX_BYTES } from './src/transcript.ts';
+import { createRunBoundary, getRunEntries, serializeRunTranscript, TRANSCRIPT_MAX_BYTES } from '@summaries/src/transcript.ts';
 
 const usage = {
 	input: 1,

@@ -1,6 +1,6 @@
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import { test } from 'vitest';
-import { extractMeta, prepareWorkflowScript } from './meta.ts';
+import { extractMeta, prepareWorkflowScript } from '@workflows/meta.ts';
 
 test('metadata is decoded statically and removed from executable source', () => {
 	const source = `export const meta = {

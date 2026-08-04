@@ -41,14 +41,7 @@ importers:
         version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@26.1.2)(vite@8.1.5(@types/node@26.1.2)(jiti@2.7.0)(yaml@2.9.0))
 
   extensions/ask-user:
-    dependencies:
-      effect:
-        specifier: ^4.0.0-beta.99
-        version: 4.0.0-beta.102
     devDependencies:
-      '@effect/tsgo':
-        specifier: ^0.24.2
-        version: 0.24.3
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -68,9 +61,6 @@ importers:
 
   extensions/copy-all:
     devDependencies:
-      '@effect/tsgo':
-        specifier: ^0.24.2
-        version: 0.24.3
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -98,26 +88,13 @@ importers:
         version: 4.1.10(@opentelemetry/api@1.9.0)(@types/node@26.1.2)(vite@8.1.5(@types/node@26.1.2)(jiti@2.7.0)(yaml@2.9.0))
 
   extensions/git-info:
-    dependencies:
-      '@effect/platform-node':
-        specifier: ^4.0.0-beta.99
-        version: 4.0.0-beta.102(effect@4.0.0-beta.102)(ioredis@5.11.1)
-      effect:
-        specifier: ^4.0.0-beta.99
-        version: 4.0.0-beta.102
     devDependencies:
-      '@effect/tsgo':
-        specifier: ^0.24.2
-        version: 0.24.3
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
 
   extensions/model-info:
     devDependencies:
-      '@effect/tsgo':
-        specifier: ^0.24.2
-        version: 0.24.3
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -139,32 +116,19 @@ importers:
         version: 7.0.2
 
   extensions/summaries:
-    dependencies:
-      effect:
-        specifier: ^4.0.0-beta.99
-        version: 4.0.0-beta.102
     devDependencies:
-      '@effect/tsgo':
-        specifier: ^0.24.2
-        version: 0.24.3
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
 
   extensions/ui-customization:
     devDependencies:
-      '@effect/tsgo':
-        specifier: ^0.24.2
-        version: 0.24.3
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
 
   extensions/workflows:
     devDependencies:
-      '@effect/tsgo':
-        specifier: ^0.24.2
-        version: 0.24.3
       typescript:
         specifier: ^7.0.2
         version: 7.0.2

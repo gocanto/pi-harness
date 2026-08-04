@@ -1,13 +1,13 @@
 import { createAgentSession, type AgentSessionEvent, SessionManager } from '@earendil-works/pi-coding-agent';
 import type { Cause, Scope } from 'effect';
 import { Effect, Queue, Stream } from 'effect';
-import type { SubagentSession } from '../../backend.ts';
-import { SendError, SpawnError, type SpawnTask, type SubagentEvent, type SubagentMeta } from '../../domain.ts';
-import { createToolCallTimeoutGuard } from '../../../../shared/tool-call-timeout.ts';
-import { PiModelResolver, type PiThinkingLevel } from './model.ts';
-import { PiProtocol } from './protocol.ts';
-import { PI_CHILD_EXCLUDED_TOOL_NAMES, PiChildResources, PiChildSessionLifecycle } from './resources.ts';
-import { PiTranscript } from './transcript.ts';
+import type { SubagentSession } from '@subagents/src/backend.ts';
+import { SendError, SpawnError, type SpawnTask, type SubagentEvent, type SubagentMeta } from '@subagents/src/domain.ts';
+import { createToolCallTimeoutGuard } from '@shared/tool-call-timeout.ts';
+import { PiModelResolver, type PiThinkingLevel } from '@subagents/src/backends/pi/model.ts';
+import { PiProtocol } from '@subagents/src/backends/pi/protocol.ts';
+import { PI_CHILD_EXCLUDED_TOOL_NAMES, PiChildResources, PiChildSessionLifecycle } from '@subagents/src/backends/pi/resources.ts';
+import { PiTranscript } from '@subagents/src/backends/pi/transcript.ts';
 
 /** Owns one scoped, in-process pi child session. */
 export class PiSession {

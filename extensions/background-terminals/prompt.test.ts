@@ -1,8 +1,8 @@
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import { test } from 'vitest';
-import type { OutputView, TerminalSnapshot } from './src/domain.ts';
+import type { OutputView, TerminalSnapshot } from '@background-terminals/src/domain.ts';
 
-import { BG_START_PARAMETER_DESCRIPTIONS, BG_START_TOOL_DESCRIPTION, buildKillReport, buildStatusResult, buildTerminalResultMessage } from './src/prompt.ts';
+import { BG_START_PARAMETER_DESCRIPTIONS, BG_START_TOOL_DESCRIPTION, buildKillReport, buildStatusResult, buildTerminalResultMessage } from '@background-terminals/src/prompt.ts';
 
 test('start descriptions identify the platform-specific shell contract', () => {
 	assert.match(BG_START_TOOL_DESCRIPTION, /sh -c on POSIX/);

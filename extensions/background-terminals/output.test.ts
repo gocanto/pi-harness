@@ -1,6 +1,6 @@
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import { test } from 'vitest';
-import { OutputBuffer } from './src/output.ts';
+import { OutputBuffer } from '@background-terminals/src/output.ts';
 
 test('push/view roundtrip preserves text and counts bytes', () => {
 	const buf = new OutputBuffer(1024);

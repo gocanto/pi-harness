@@ -1,7 +1,7 @@
 import type { AssistantMessage, Message } from '@earendil-works/pi-ai';
 import type { AgentSession } from '@earendil-works/pi-coding-agent';
-import type { TranscriptPart } from '../../domain.ts';
-import { PiProtocol } from './protocol.ts';
+import type { TranscriptPart } from '@subagents/src/domain.ts';
+import { PiProtocol } from '@subagents/src/backends/pi/protocol.ts';
 
 /** Converts pi-native messages into the normalized subagent transcript shape. */
 export class PiTranscript {

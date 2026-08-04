@@ -1,7 +1,7 @@
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import { test } from 'vitest';
 
-import { contextPercent, formatContextUtilization } from './context-utilization.ts';
+import { contextPercent, formatContextUtilization } from '@shared/context-utilization.ts';
 
 test('formats current context occupancy against model capacity', () => {
 	assert.equal(formatContextUtilization({ tokens: 26_040, contextWindow: 372_000 }), '7%/372k');

@@ -21,7 +21,8 @@
   "type": "module",
   "scripts": {
     "prepare": "effect-tsgo patch",
-    "check": "tsc --noEmit",
+    "check": "pnpm run check:imports && tsc --noEmit",
+    "check:imports": "node scripts/check-import-aliases.mjs",
     "format": "fmtkit format --ts",
     "format:check": "fmtkit format --ts",
     "format:all": "fmtkit format-all --ts",

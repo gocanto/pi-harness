@@ -1,11 +1,11 @@
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'vitest';
 
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 
-import { activationPreferencePath, parseActivationEnv, readActivationPreference, resolveWorkflowActivation, writeActivationPreference, WORKFLOW_ACTIVATION_ENV_VAR } from './activation.ts';
+import { activationPreferencePath, parseActivationEnv, readActivationPreference, resolveWorkflowActivation, writeActivationPreference, WORKFLOW_ACTIVATION_ENV_VAR } from '@workflows/activation.ts';
 
 function withTempAgentDir(fn: (agentDir: string) => void) {
 	const agentDir = mkdtempSync(

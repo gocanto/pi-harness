@@ -1,12 +1,12 @@
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'vitest';
 
-import { boundedArtifactTranscript, createWorkflowPersistence, persistWorkflowJson } from './artifacts.ts';
+import { boundedArtifactTranscript, createWorkflowPersistence, persistWorkflowJson } from '@workflows/artifacts.ts';
 
-import { emptyUsage, type TranscriptEntry, type WorkflowDetails } from './model.ts';
+import { emptyUsage, type TranscriptEntry, type WorkflowDetails } from '@workflows/model.ts';
 
 function workflowDetails(): WorkflowDetails {
 	return {

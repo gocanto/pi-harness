@@ -1,9 +1,9 @@
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import { test } from 'vitest';
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 
-import { createToolCallTimeoutGuard, runWithToolCallTimeout, CHILD_TOOL_CALL_TIMEOUT_MS, ToolCallTimeoutError } from './tool-call-timeout.ts';
+import { createToolCallTimeoutGuard, runWithToolCallTimeout, CHILD_TOOL_CALL_TIMEOUT_MS, ToolCallTimeoutError } from '@shared/tool-call-timeout.ts';
 
 test('the production timeout error names the tool and three-minute limit', () => {
 	assert.equal(new ToolCallTimeoutError('fixture_tool', CHILD_TOOL_CALL_TIMEOUT_MS).message, 'Tool call "fixture_tool" timed out after 3 minutes.');

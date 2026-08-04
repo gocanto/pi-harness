@@ -1,9 +1,9 @@
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import { test } from 'vitest';
-import { Cause, Deferred, Effect, Exit, Fiber, Layer } from 'effect';
-import { CommandRunner, type CommandResult } from './src/process.ts';
+import { GitChangesLoader } from '@git-info/src/changed-files-view/git-changes-loader.ts';
+import { type CommandRunner, type CommandResult } from '@git-info/src/process.ts';
 
-import { loadChangedFiles, loadFileDiff, MAX_DIFF_LINES, sanitizeTerminalText } from './src/changed-files-view.ts';
+import { MAX_DIFF_LINES, sanitizeTerminalText } from '@git-info/src/changed-files-view.ts';
 
 test('repository text cannot inject terminal control sequences', () => {
 	const input = 'before]52;c;Y2xpcGJvYXJkafter[31mred[0m';
@@ -36,63 +36,67 @@ function makeFixture(options: Fixture = {}) {
 	const { diffFor, hasHead = true, root = '/repo', statFor, statusResult, toplevelResult } = options;
 	const calls: string[][] = [];
 
-	const layer = Layer.succeed(
-		CommandRunner,
-		CommandRunner.of({
-			run: (_command, args) =>
-				Effect.sync(() => {
-					calls.push(args);
+	const runner: CommandRunner = {
+		run: async (_command, args) => {
+			calls.push([...args]);
 
-					if (args[0] === 'rev-parse' && args.includes('--show-toplevel')) {
-						return toplevelResult ?? { code: 0, stdout: `${root}\n`, stderr: '' };
+			if (args[0] === 'rev-parse' && args.includes('--show-toplevel')) {
+				return toplevelResult ?? { code: 0, stdout: `${root}\n`, stderr: '' };
+			}
+
+			if (args[0] === 'rev-parse' && args.includes('--verify')) {
+				return hasHead
+					? { code: 0, stdout: 'abc123\n', stderr: '' }
+					: {
+							code: 128,
+							stdout: '',
+							stderr: "fatal: ambiguous argument 'HEAD'\n",
+						};
+			}
+
+			if (args[0] === 'status') {
+				return statusResult ?? OK;
+			}
+
+			if (args[0] === 'diff' && args.includes('--numstat')) {
+				const path = args.at(-1);
+
+				if (!path) {
+					throw new Error('missing stat path');
+				}
+
+				return (
+					statFor?.(path) ?? {
+						code: 0,
+						stdout: `0\t0\t${path}\n`,
+						stderr: '',
 					}
+				);
+			}
 
-					if (args[0] === 'rev-parse' && args.includes('--verify')) {
-						return hasHead
-							? { code: 0, stdout: 'abc123\n', stderr: '' }
-							: {
-									code: 128,
-									stdout: '',
-									stderr: "fatal: ambiguous argument 'HEAD'\n",
-								};
-					}
+			if (args[0] === 'diff' && args.includes('--unified=3')) {
+				const path = args.at(-1);
 
-					if (args[0] === 'status') {
-						return statusResult ?? OK;
-					}
+				if (!path) {
+					throw new Error('missing diff path');
+				}
 
-					if (args[0] === 'diff' && args.includes('--numstat')) {
-						const path = args[args.length - 1]!;
+				return diffFor?.(path) ?? OK;
+			}
 
-						return (
-							statFor?.(path) ?? {
-								code: 0,
-								stdout: `0\t0\t${path}\n`,
-								stderr: '',
-							}
-						);
-					}
+			throw new Error(`unexpected command: git ${args.join(' ')}`);
+		},
+	};
 
-					if (args[0] === 'diff' && args.includes('--unified=3')) {
-						const path = args[args.length - 1]!;
-
-						return diffFor?.(path) ?? OK;
-					}
-
-					throw new Error(`unexpected command: git ${args.join(' ')}`);
-				}),
-		}),
-	);
-
-	return { calls, layer };
+	return { calls, runner };
 }
 
 function runLoadChangedFiles(cwd: string, fixture: ReturnType<typeof makeFixture>) {
-	return Effect.runPromise(loadChangedFiles(cwd).pipe(Effect.provide(fixture.layer)));
+	return new GitChangesLoader(fixture.runner).loadChangedFiles(cwd);
 }
 
 function runLoadFileDiff(repoRoot: string, file: { rawPath: string; status: string }, hasHead: boolean, fixture: ReturnType<typeof makeFixture>) {
-	return Effect.runPromise(loadFileDiff(repoRoot, file, hasHead).pipe(Effect.provide(fixture.layer)));
+	return new GitChangesLoader(fixture.runner).loadFileDiff(repoRoot, file, hasHead);
 }
 
 test('loadChangedFiles: the initial pass is cheap stats only, with no per-file diff commands', async () => {
@@ -376,39 +380,28 @@ test('loadFileDiff: bounds the retained diff to MAX_DIFF_LINES', async () => {
 });
 
 test('loadFileDiff: cancellation interrupts the outstanding git command instead of hanging', async () => {
-	const outcome = await Effect.runPromise(
-		Effect.gen(function* () {
-			const started = yield* Deferred.make<void>();
+	let resolveStarted: (() => void) | undefined;
 
-			const layer = Layer.succeed(
-				CommandRunner,
-				CommandRunner.of({
-					run: () =>
-						Effect.gen(function* () {
-							yield* Deferred.succeed(started, undefined);
-							// Simulate a git process that never returns on its own; only
-							// interruption should stop it.
-							yield* Effect.never;
+	const started = new Promise<void>((resolve) => {
+		resolveStarted = resolve;
+	});
 
-							return OK;
-						}),
-				}),
-			);
+	const runner: CommandRunner = {
+		run: async (_command, _args, _cwd, _timeout, signal) => {
+			resolveStarted?.();
 
-			const fiber = yield* Effect.forkChild(loadFileDiff(
-				'/repo',
-				{ rawPath: 'big.ts', status: 'M ' },
-				true,
-			).pipe(Effect.provide(layer)));
+			return new Promise<CommandResult>((_resolve, reject) => {
+				signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')), { once: true });
+			});
+		},
+	};
 
-			yield* Deferred.await(started);
-			yield* Fiber.interrupt(fiber);
+	const controller = new AbortController();
+	const operation = new GitChangesLoader(runner).loadFileDiff('/repo', { rawPath: 'big.ts', status: 'M ' }, true, controller.signal);
 
-			return fiber.pollUnsafe();
-		}),
-	);
+	await started;
 
-	assert.ok(outcome !== undefined);
-	assert.ok(Exit.isFailure(outcome));
-	assert.ok(Cause.hasInterruptsOnly(outcome.cause));
+	controller.abort();
+
+	await assert.rejects(operation, /aborted/i);
 });

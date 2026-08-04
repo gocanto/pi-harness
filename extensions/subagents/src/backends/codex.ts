@@ -12,12 +12,12 @@
 import { spawn } from 'node:child_process';
 import type { Cause, Scope } from 'effect';
 import { Effect, Queue, Stream } from 'effect';
-import type { SubagentBackend, SubagentSession } from '../backend.ts';
-import { SendError, SpawnError } from '../domain.ts';
-import { CodexBinaryResolver, CodexProcessTree } from './codex/index.ts';
-import { CodexProtocol, type JsonRecord } from './codex/protocol.ts';
+import type { SubagentBackend, SubagentSession } from '@subagents/src/backend.ts';
+import { SendError, SpawnError } from '@subagents/src/domain.ts';
+import { CodexBinaryResolver, CodexProcessTree } from '@subagents/src/backends/codex/index.ts';
+import { CodexProtocol, type JsonRecord } from '@subagents/src/backends/codex/protocol.ts';
 
-import type { RunOutcome, SpawnTask, SubagentEvent, SubagentMeta, TranscriptPart } from '../domain.ts';
+import type { RunOutcome, SpawnTask, SubagentEvent, SubagentMeta, TranscriptPart } from '@subagents/src/domain.ts';
 
 const REQUEST_TIMEOUT_MS = 30_000;
 const MODEL_LIST_TIMEOUT_MS = 5_000;

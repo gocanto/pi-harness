@@ -6,16 +6,16 @@
  * timing-based.
  */
 
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { test } from 'vitest';
 import { Effect } from 'effect';
-import type { TerminalSnapshot } from './src/domain.ts';
-import { createTerminalRuntime, runTool } from './src/runtime.ts';
+import type { TerminalSnapshot } from '@background-terminals/src/domain.ts';
+import { createTerminalRuntime, runTool } from '@background-terminals/src/runtime.ts';
 
-import { MAX_RUNNING, MAX_TRACKED, TerminalManager, type TerminalManagerShape } from './src/manager.ts';
+import { MAX_RUNNING, MAX_TRACKED, TerminalManager, type TerminalManagerShape } from '@background-terminals/src/manager.ts';
 
 const cwd = process.cwd();
 

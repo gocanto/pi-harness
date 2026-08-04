@@ -23,13 +23,13 @@ import * as path from 'node:path';
 import { getMarkdownTheme } from '@earendil-works/pi-coding-agent';
 import { Markdown, Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
-import type { TerminalSnapshot } from './src/domain.ts';
-import { TerminalManager, type TerminalManagerShape } from './src/manager.ts';
-import { DeferredResultDelivery } from '../shared/deferred-result-delivery.ts';
-import { sanitizeText } from './src/ui/output-view.ts';
-import { openTerminalPicker } from './src/ui/ps.ts';
+import type { TerminalSnapshot } from '@background-terminals/src/domain.ts';
+import { TerminalManager, type TerminalManagerShape } from '@background-terminals/src/manager.ts';
+import { DeferredResultDelivery } from '@shared/deferred-result-delivery.ts';
+import { sanitizeText } from '@background-terminals/src/ui/output-view.ts';
+import { openTerminalPicker } from '@background-terminals/src/ui/ps.ts';
 import type { ExtensionAPI, ExtensionContext, ExtensionUIContext } from '@earendil-works/pi-coding-agent';
-import { createTerminalRuntime, runTool, type TerminalRuntime } from './src/runtime.ts';
+import { createTerminalRuntime, runTool, type TerminalRuntime } from '@background-terminals/src/runtime.ts';
 
 import {
 	BG_KILL_PARAMETER_DESCRIPTIONS,
@@ -46,7 +46,7 @@ import {
 	buildStatusResult,
 	buildTerminalResultMessage,
 	describeTerminal,
-} from './src/prompt.ts';
+} from '@background-terminals/src/prompt.ts';
 
 const WIDGET_KEY = 'background-terminals';
 

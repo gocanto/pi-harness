@@ -1,7 +1,7 @@
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import { test } from 'vitest';
 
-import { BTW_TITLE_MAX_LENGTH, deriveBtwTitle, isModelVisible } from './src/by-the-way.ts';
+import { BTW_TITLE_MAX_LENGTH, deriveBtwTitle, isModelVisible } from '@subagents/src/by-the-way.ts';
 
 test('deriveBtwTitle uses the first non-empty line and bounds the title', () => {
 	assert.equal(deriveBtwTitle('\n   Why   does this work?   \nignore me'), 'Why does this work?');

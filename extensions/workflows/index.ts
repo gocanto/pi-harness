@@ -31,12 +31,12 @@
 
 import * as path from 'node:path';
 import { getAgentDir, type ExtensionAPI } from '@earendil-works/pi-coding-agent';
-import { sessionWorkflowRunIds, showWorkflowDashboard } from './dashboard.ts';
-import { cleanupExpiredWorkflowRuns } from './retention.ts';
-import { WorkflowRunRegistry } from './registry.ts';
-import { WorkflowToolRegistrar } from './tool.ts';
+import { sessionWorkflowRunIds, showWorkflowDashboard } from '@workflows/dashboard.ts';
+import { cleanupExpiredWorkflowRuns } from '@workflows/retention.ts';
+import { WorkflowRunRegistry } from '@workflows/registry.ts';
+import { WorkflowToolRegistrar } from '@workflows/tool.ts';
 
-import { resolveWorkflowActivation, writeActivationPreference, WORKFLOW_ACTIVATION_ENV_VAR } from './activation.ts';
+import { resolveWorkflowActivation, writeActivationPreference, WORKFLOW_ACTIVATION_ENV_VAR } from '@workflows/activation.ts';
 
 const WORKFLOW_TOOL_NAME = 'workflow';
 

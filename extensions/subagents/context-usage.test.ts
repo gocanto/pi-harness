@@ -1,7 +1,7 @@
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import { test } from 'vitest';
-import { contextOccupancyTokens } from './src/backends/claude.ts';
-import { parseThreadTokenUsage } from './src/backends/codex.ts';
+import { contextOccupancyTokens } from '@subagents/src/backends/claude.ts';
+import { parseThreadTokenUsage } from '@subagents/src/backends/codex.ts';
 
 // --- Claude: per-request occupancy, never the run aggregate ------------------
 

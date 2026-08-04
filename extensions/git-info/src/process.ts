@@ -1,6 +1,4 @@
-import { Context, Effect, Layer, Stream } from 'effect';
-import { ChildProcess } from 'effect/unstable/process';
-import { ChildProcessSpawner } from 'effect/unstable/process/ChildProcessSpawner';
+import { spawn, type ChildProcess } from 'node:child_process';
 
 const MAX_STREAM_CHARS = 10 * 1_024 * 1_024;
 const TRUNCATED_MARKER = '\n[command output truncated]\n';
@@ -35,85 +33,152 @@ export interface CommandResult {
 	stdout: string;
 }
 
-interface CommandRunnerShape {
-	run(command: string, args: string[], cwd: string, timeout: number): Effect.Effect<CommandResult>;
+/** Runs one external command and captures its bounded output. */
+export interface CommandRunner {
+	run(command: string, args: readonly string[], cwd: string, timeout: number, signal?: AbortSignal): Promise<CommandResult>;
 }
 
-export class CommandRunner extends Context.Service<CommandRunner, CommandRunnerShape>()('git-info/CommandRunner') {}
-
-function appendCommandFailure(stderr: string, command: string, error: Error) {
-	const failure = `Failed to run ${command}: ${error.message}`;
+function appendCommandFailure(stderr: string, command: string, error: unknown) {
+	const message = error instanceof Error ? error.message : String(error);
+	const failure = `Failed to run ${command}: ${message}`;
 
 	return stderr ? `${stderr.trimEnd()}\n${failure}` : failure;
 }
 
-/** Effect-backed command adapter. It owns process execution and output limits. */
-export class EffectCommandRunner {
-	constructor(private readonly spawner: ChildProcessSpawner['Service']) {}
-
+/** Node child-process adapter used by the git-info extension. */
+export class ProcessCommandRunner implements CommandRunner {
 	/** Execute one command with bounded stdout/stderr and a timeout. */
-	run(command: string, args: string[], cwd: string, timeout: number) {
-		return Effect.suspend(() => {
-			const spawner = this.spawner;
+	run(command: string, args: readonly string[], cwd: string, timeout: number, signal?: AbortSignal) {
+		if (signal?.aborted) {
+			return Promise.reject(new DOMException('The operation was aborted.', 'AbortError'));
+		}
+
+		return new Promise<CommandResult>((resolve, reject) => {
 			const stderr = new CommandOutputBuffer();
 			const stdout = new CommandOutputBuffer();
 
-			const child = ChildProcess.make(command, args, {
-				cwd,
-				detached: false,
-				forceKillAfter: '5 seconds',
-				stdin: 'ignore',
-				stderr: 'pipe',
-				stdout: 'pipe',
-			});
+			let settled = false;
+			let timedOut = false;
+			let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+			let child: ChildProcess | undefined;
 
-			return Effect.scoped(
-				Effect.gen(function* () {
-					const handle = yield* spawner.spawn(child);
+			const clear = () => {
+				if (timeoutHandle !== undefined) {
+					clearTimeout(timeoutHandle);
+				}
 
-					const [, , code] = yield* Effect.all(
-						[
-							Stream.runForEach(Stream.decodeText(handle.stdout), (chunk) => Effect.sync(() => stdout.append(chunk))),
-							Stream.runForEach(Stream.decodeText(handle.stderr), (chunk) => Effect.sync(() => stderr.append(chunk))),
-							handle.exitCode,
-						],
-						{ concurrency: 'unbounded' },
-					);
+				signal?.removeEventListener('abort', abort);
+			};
 
-					return { code: Number(code), stderr: stderr.text(), stdout: stdout.text() };
-				}),
-			).pipe(
-				Effect.timeoutOrElse({
-					duration: timeout,
-					orElse: () =>
-						Effect.succeed({
-							code: -1,
-							stderr: stderr.text(),
-							stdout: stdout.text(),
-						}),
-				}),
-				Effect.catch((error) =>
-					Effect.succeed({
+			const finish = (result: CommandResult) => {
+				if (settled) {
+					return;
+				}
+
+				settled = true;
+				clear();
+				resolve(result);
+			};
+
+			const fail = (error: unknown) => {
+				if (settled) {
+					return;
+				}
+
+				settled = true;
+				clear();
+				reject(error);
+			};
+
+			const terminate = () => {
+				try {
+					child?.kill();
+				} catch {
+					// The process may have exited between the timeout and kill call.
+				}
+			};
+
+			const abort = () => {
+				terminate();
+				fail(new DOMException('The operation was aborted.', 'AbortError'));
+			};
+
+			try {
+				child = spawn(
+					command,
+					[...args],
+					{
+						cwd,
+						stdio: ['ignore', 'pipe', 'pipe'],
+					},
+				);
+			} catch (error) {
+				finish(
+					{
 						code: 1,
 						stderr: appendCommandFailure(stderr.text(), command, error),
 						stdout: stdout.text(),
-					}),
-				),
-			);
+					},
+				);
+
+				return;
+			}
+
+			if (!child) {
+				return;
+			}
+
+			const spawnedChild = child;
+
+			spawnedChild.stdout?.setEncoding('utf8');
+			spawnedChild.stderr?.setEncoding('utf8');
+			spawnedChild.stdout?.on('data', (chunk: string) => stdout.append(chunk));
+			spawnedChild.stderr?.on('data', (chunk: string) => stderr.append(chunk));
+			spawnedChild.once('error', (error: Error) => {
+				finish(
+					{
+						code: 1,
+						stderr: appendCommandFailure(stderr.text(), command, error),
+						stdout: stdout.text(),
+					},
+				);
+			});
+			spawnedChild.once('close', (code: number | null) => {
+				finish(
+					{
+						code: timedOut ? -1 : (code ?? 1),
+						stderr: stderr.text(),
+						stdout: stdout.text(),
+					},
+				);
+			});
+
+			if (signal) {
+				signal.addEventListener('abort', abort, { once: true });
+				if (signal.aborted) {
+					abort();
+				}
+			}
+
+			if (settled) {
+				return;
+			}
+
+			timeoutHandle = setTimeout(() => {
+				timedOut = true;
+				terminate();
+				finish(
+					{ code: -1, stderr: stderr.text(), stdout: stdout.text() },
+				);
+			}, timeout);
 		});
 	}
 }
 
-export const CommandRunnerLive = Layer.effect(
-	CommandRunner,
-	Effect.gen(function* () {
-		return CommandRunner.of(new EffectCommandRunner(yield* ChildProcessSpawner));
-	}),
-);
+/** The live command runner used by git-info when no test runner is supplied. */
+export const liveCommandRunner: CommandRunner = new ProcessCommandRunner();
 
-export const runCommand = (command: string, args: string[], cwd: string, timeout: number) =>
-	Effect.gen(function* () {
-		const commands = yield* CommandRunner;
-
-		return yield* commands.run(command, args, cwd, timeout);
-	});
+/** Execute a command with the live command runner. */
+export function runCommand(command: string, args: readonly string[], cwd: string, timeout: number, signal?: AbortSignal) {
+	return liveCommandRunner.run(command, args, cwd, timeout, signal);
+}

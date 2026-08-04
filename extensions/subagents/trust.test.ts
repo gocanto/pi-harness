@@ -8,13 +8,13 @@
  * handler calls.
  */
 
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { test } from 'vitest';
 import { ProjectTrustStore } from '@earendil-works/pi-coding-agent';
-import { resolveStandaloneChildProjectTrust } from '../shared/child-session.ts';
+import { resolveStandaloneChildProjectTrust } from '@shared/child-session.ts';
 
 async function withTempDir(run: (directory: string) => Promise<void>) {
 	const directory = await mkdtemp(

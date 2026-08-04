@@ -11,12 +11,12 @@
  */
 
 import { Type, type TSchema } from 'typebox';
-import { createToolCallTimeoutGuard } from '../shared/tool-call-timeout.ts';
-import { emptyUsage, type AgentUsage, type TranscriptEntry } from './model.ts';
-import { truncateUtf8 } from './serialization.ts';
+import { createToolCallTimeoutGuard } from '@shared/tool-call-timeout.ts';
+import { emptyUsage, type AgentUsage, type TranscriptEntry } from '@workflows/model.ts';
+import { truncateUtf8 } from '@workflows/serialization.ts';
 import type { CreateAgentSessionOptions, DefaultResourceLoader, SessionShutdownEvent, SettingsManager } from '@earendil-works/pi-coding-agent';
-import { bindChildSessionExtensions, childToolPolicy, createChildResources, shutdownAndDisposeChildSession } from '../shared/child-session.ts';
-import { buildWorkflowAgentPrompt, STRUCTURED_OUTPUT_SYSTEM_INSTRUCTION, STRUCTURED_OUTPUT_TOOL_DESCRIPTION } from './prompt.ts';
+import { bindChildSessionExtensions, childToolPolicy, createChildResources, shutdownAndDisposeChildSession } from '@shared/child-session.ts';
+import { buildWorkflowAgentPrompt, STRUCTURED_OUTPUT_SYSTEM_INSTRUCTION, STRUCTURED_OUTPUT_TOOL_DESCRIPTION } from '@workflows/prompt.ts';
 
 import {
 	createAgentSession,
@@ -218,10 +218,10 @@ function makeStructuredOutputTool(schema: unknown, capture: (value: unknown) => 
  * `finalOutput()` and the incremental `IncrementalProgressTracker` so both
  * agree on what counts as "the latest assistant output".
  */
-export { assistantText, computeUsage, finalOutput, IncrementalProgressTracker, recordToolExecutionTiming, transcriptFromMessages } from './runner/progress.ts';
-export type { ToolExecutionTiming } from './runner/progress.ts';
-import { computeUsage, finalOutput, IncrementalProgressTracker, recordToolExecutionTiming, transcriptFromMessages } from './runner/progress.ts';
-import type { ToolExecutionTiming } from './runner/progress.ts';
+export { assistantText, computeUsage, finalOutput, IncrementalProgressTracker, recordToolExecutionTiming, transcriptFromMessages } from '@workflows/runner/progress.ts';
+export type { ToolExecutionTiming } from '@workflows/runner/progress.ts';
+import { computeUsage, finalOutput, IncrementalProgressTracker, recordToolExecutionTiming, transcriptFromMessages } from '@workflows/runner/progress.ts';
+import type { ToolExecutionTiming } from '@workflows/runner/progress.ts';
 
 function errorText(error: unknown): string {
 	return (error instanceof Error ? error.message : String(error)).slice(0, 16 * 1024);

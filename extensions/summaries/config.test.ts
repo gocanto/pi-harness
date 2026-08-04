@@ -1,6 +1,6 @@
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import { test } from 'vitest';
-import { DEFAULT_SUMMARY_CONFIG, parseSummaryConfig } from './src/config.ts';
+import { DEFAULT_SUMMARY_CONFIG, parseSummaryConfig } from '@summaries/src/config.ts';
 
 test('summary config defaults to Codex Luna at medium reasoning', () => {
 	assert.deepEqual(parseSummaryConfig(undefined), DEFAULT_SUMMARY_CONFIG);

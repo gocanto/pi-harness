@@ -1,8 +1,8 @@
 import type { ChildProcess } from 'node:child_process';
 import { Effect } from 'effect';
-import { ChildCloseWaiter } from './child-close-waiter.ts';
-import { ProcessTreeSignaler } from './process-tree-signaler.ts';
-import { ShellInvocation } from './shell-invocation.ts';
+import { ChildCloseWaiter } from '@background-terminals/src/process-tree/child-close-waiter.ts';
+import { ProcessTreeSignaler } from '@background-terminals/src/process-tree/process-tree-signaler.ts';
+import { ShellInvocation } from '@background-terminals/src/process-tree/shell-invocation.ts';
 
 const FORCE_KILL_AFTER_MS = 2_000;
 

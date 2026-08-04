@@ -1,8 +1,7 @@
 import { basename } from 'node:path';
-import { Effect } from 'effect';
-import { runCommand } from '../process.ts';
-import { TerminalText } from './terminal-text.ts';
-import type { ChangedFile, ChangedFilesResult, ChangedPath, DiffLoadResult } from './types.ts';
+import { liveCommandRunner, type CommandRunner } from '@git-info/src/process.ts';
+import { TerminalText } from '@git-info/src/changed-files-view/terminal-text.ts';
+import type { ChangedFile, ChangedFilesResult, ChangedPath, DiffLoadResult } from '@git-info/src/changed-files-view/types.ts';
 
 const COMMAND_TIMEOUT_MS = 10_000;
 const STATS_CONCURRENCY = 8;
@@ -10,82 +9,100 @@ const STATS_CONCURRENCY = 8;
 /** Exported so callers can assert the documented truncation bound. */
 export const MAX_DIFF_LINES = 20_000;
 
+async function mapWithConcurrency<T, U>(items: readonly T[], concurrency: number, operation: (item: T) => Promise<U>) {
+	const results: U[] = [];
+
+	let nextIndex = 0;
+
+	async function worker() {
+		while (nextIndex < items.length) {
+			const index = nextIndex;
+
+			nextIndex += 1;
+
+			results[index] = await operation(items[index]);
+		}
+	}
+
+	await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, () => worker()));
+
+	return results;
+}
+
 /** Git parsing and lazy changed-file loading concern. */
 export class GitChangesLoader {
+	constructor(private readonly runner: CommandRunner = liveCommandRunner) {}
+
 	/** Load changed paths and cheap per-file statistics. */
-	static loadChangedFiles(cwd: string) {
-		return Effect.gen(function* () {
-			const rootResult = yield* GitChangesLoader.run(cwd, ['rev-parse', '--show-toplevel']);
+	async loadChangedFiles(cwd: string, signal?: AbortSignal) {
+		const rootResult = await this.run(cwd, ['rev-parse', '--show-toplevel'], signal);
 
-			if (rootResult.code !== 0) {
-				return null;
-			}
+		if (rootResult.code !== 0) {
+			return null;
+		}
 
-			const repoRoot = rootResult.stdout.trim();
+		const repoRoot = rootResult.stdout.trim();
 
-			const [statusResult, headResult] = yield* Effect.all(
-				[GitChangesLoader.run(repoRoot, ['status', '--porcelain=v1', '-z', '--untracked-files=all']), GitChangesLoader.run(repoRoot, ['rev-parse', '--verify', 'HEAD'])],
-				{ concurrency: 'unbounded' },
-			);
+		const [statusResult, headResult] = await Promise.all([
+			this.run(repoRoot, ['status', '--porcelain=v1', '-z', '--untracked-files=all'], signal),
+			this.run(repoRoot, ['rev-parse', '--verify', 'HEAD'], signal),
+		]);
 
-			if (statusResult.code !== 0) {
-				return null;
-			}
+		if (statusResult.code !== 0) {
+			return null;
+		}
 
-			const changedPaths = GitChangesLoader.parseChangedPaths(statusResult.stdout);
-			const hasHead = headResult.code === 0;
+		const changedPaths = GitChangesLoader.parseChangedPaths(statusResult.stdout);
+		const hasHead = headResult.code === 0;
 
-			const files = yield* Effect.all(
-				changedPaths.map((changedPath) => GitChangesLoader.loadFileStats(repoRoot, changedPath, hasHead)),
-				{ concurrency: STATS_CONCURRENCY },
-			);
+		const files = await mapWithConcurrency(changedPaths, STATS_CONCURRENCY, (changedPath) => this.loadFileStats(repoRoot, changedPath, hasHead, signal));
 
-			return { files, hasHead, repoRoot } satisfies ChangedFilesResult;
-		});
+		return { files, hasHead, repoRoot } satisfies ChangedFilesResult;
 	}
 
 	/** Load one changed file's textual diff, retaining at most MAX_DIFF_LINES lines. */
-	static loadFileDiff(repoRoot: string, file: Pick<ChangedFile, 'rawPath' | 'status'>, hasHead: boolean) {
-		return Effect.gen(function* () {
-			const diffResult = yield* GitChangesLoader.run(repoRoot, GitChangesLoader.diffArguments(file.rawPath, file.status, hasHead));
+	async loadFileDiff(repoRoot: string, file: Pick<ChangedFile, 'rawPath' | 'status'>, hasHead: boolean, signal?: AbortSignal) {
+		const diffResult = await this.run(repoRoot, GitChangesLoader.diffArguments(file.rawPath, file.status, hasHead), signal);
 
-			if (diffResult.code !== 0) {
-				const reason = TerminalText.sanitize(diffResult.stderr).trim() || `git exited with code ${diffResult.code}`;
+		if (diffResult.code !== 0) {
+			const reason = TerminalText.sanitize(diffResult.stderr).trim() || `git exited with code ${diffResult.code}`;
 
-				return { _tag: 'unavailable', message: `Diff unavailable: ${reason}` } satisfies DiffLoadResult;
-			}
+			return { _tag: 'unavailable', message: `Diff unavailable: ${reason}` } satisfies DiffLoadResult;
+		}
 
-			const allDiffLines = diffResult.stdout.trimEnd()
-				.split('\n')
-				.map(TerminalText.sanitize);
+		const allDiffLines = diffResult.stdout.trimEnd()
+			.split('\n')
+			.map(TerminalText.sanitize);
 
-			const diff = allDiffLines.length > MAX_DIFF_LINES ? [...allDiffLines.slice(0, MAX_DIFF_LINES), `… diff truncated after ${MAX_DIFF_LINES.toLocaleString()} lines …`] : allDiffLines;
+		const diff = allDiffLines.length > MAX_DIFF_LINES ? [...allDiffLines.slice(0, MAX_DIFF_LINES), `… diff truncated after ${MAX_DIFF_LINES.toLocaleString()} lines …`] : allDiffLines;
 
-			return { _tag: 'loaded', lines: diff.length === 1 && diff[0] === '' ? ['No textual diff available.'] : diff } satisfies DiffLoadResult;
-		});
+		return { _tag: 'loaded', lines: diff.length === 1 && diff[0] === '' ? ['No textual diff available.'] : diff } satisfies DiffLoadResult;
 	}
 
-	private static loadFileStats(repoRoot: string, changedPath: ChangedPath, hasHead: boolean) {
-		return Effect.gen(function* () {
-			const statResult = yield* GitChangesLoader.run(repoRoot, GitChangesLoader.statArguments(changedPath.path, changedPath.status, hasHead));
-			const line = statResult.stdout.split('\n').find(Boolean);
-			const [added, deleted] = line?.split('\t') ?? [];
+	private async loadFileStats(repoRoot: string, changedPath: ChangedPath, hasHead: boolean, signal?: AbortSignal) {
+		const statResult = await this.run(repoRoot, GitChangesLoader.statArguments(changedPath.path, changedPath.status, hasHead), signal);
 
-			const stats = !line
-				? { additions: 0, deletions: 0 }
-				: {
-						additions: added === '-' ? null : Number.parseInt(added ?? '0', 10),
-						deletions: deleted === '-' ? null : Number.parseInt(deleted ?? '0', 10),
-					};
+		const line = statResult.stdout.split('\n').find(Boolean);
+		const [added, deleted] = line?.split('\t') ?? [];
 
-			return {
-				...stats,
-				name: TerminalText.cleanDisplayPath(basename(changedPath.path)),
-				path: TerminalText.cleanDisplayPath(changedPath.path),
-				rawPath: changedPath.path,
-				status: changedPath.status,
-			} satisfies ChangedFile;
-		});
+		const stats = !line
+			? { additions: 0, deletions: 0 }
+			: {
+					additions: added === '-' ? null : Number.parseInt(added ?? '0', 10),
+					deletions: deleted === '-' ? null : Number.parseInt(deleted ?? '0', 10),
+				};
+
+		return {
+			...stats,
+			name: TerminalText.cleanDisplayPath(basename(changedPath.path)),
+			path: TerminalText.cleanDisplayPath(changedPath.path),
+			rawPath: changedPath.path,
+			status: changedPath.status,
+		} satisfies ChangedFile;
+	}
+
+	private run(cwd: string, args: readonly string[], signal?: AbortSignal) {
+		return this.runner.run('git', args, cwd, COMMAND_TIMEOUT_MS, signal);
 	}
 
 	private static parseChangedPaths(output: string) {
@@ -123,8 +140,16 @@ export class GitChangesLoader {
 			? ['diff', '--no-index', '--no-ext-diff', '--no-color', '--unified=3', '--', '/dev/null', path]
 			: ['diff', '--no-ext-diff', '--no-color', '--unified=3', 'HEAD', '--', path];
 	}
+}
 
-	private static run(cwd: string, args: string[]) {
-		return runCommand('git', args, cwd, COMMAND_TIMEOUT_MS);
-	}
+const defaultLoader = new GitChangesLoader();
+
+/** Load changed files and their cheap per-file statistics. */
+export function loadChangedFiles(cwd: string, signal?: AbortSignal) {
+	return defaultLoader.loadChangedFiles(cwd, signal);
+}
+
+/** Load a selected file's textual diff lazily. */
+export function loadFileDiff(repoRoot: string, file: Pick<ChangedFile, 'rawPath' | 'status'>, hasHead: boolean, signal?: AbortSignal) {
+	return defaultLoader.loadFileDiff(repoRoot, file, hasHead, signal);
 }

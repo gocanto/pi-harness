@@ -1,7 +1,7 @@
 import type { Effect } from 'effect';
-import type { KillResult, TerminalReadModel } from '../manager.ts';
-import type { TerminalSnapshot } from '../domain.ts';
-import type { TerminalEntry } from './entry.ts';
+import type { KillResult, TerminalReadModel } from '@background-terminals/src/manager.ts';
+import type { TerminalSnapshot } from '@background-terminals/src/domain.ts';
+import type { TerminalEntry } from '@background-terminals/src/terminal-manager/entry.ts';
 
 const SETTLED_HISTORY_LIMIT = 128;
 

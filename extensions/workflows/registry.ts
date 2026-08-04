@@ -1,11 +1,11 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { ExtensionContext } from '@earendil-works/pi-coding-agent';
-import { formatActivityStatus } from '../shared/activity-status.ts';
-import type { RunController } from './controller.ts';
-import { countStates, type WorkflowDetails } from './model.ts';
-import { buildWorkflowResultMessage } from './prompt.ts';
-import { safeStringify } from './serialization.ts';
+import { formatActivityStatus } from '@shared/activity-status.ts';
+import type { RunController } from '@workflows/controller.ts';
+import { countStates, type WorkflowDetails } from '@workflows/model.ts';
+import { buildWorkflowResultMessage } from '@workflows/prompt.ts';
+import { safeStringify } from '@workflows/serialization.ts';
 
 /** A workflow run retained while it is executing or awaiting cleanup. */
 export interface ActiveWorkflowRun {

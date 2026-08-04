@@ -1,4 +1,4 @@
-import type { ReasoningEffort } from '../../domain.ts';
+import type { ReasoningEffort } from '@subagents/src/domain.ts';
 
 /** JSON object accepted by the Codex app-server protocol. */
 export type JsonRecord = Record<string, unknown>;

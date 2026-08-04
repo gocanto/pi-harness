@@ -1,6 +1,6 @@
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import { test } from 'vitest';
-import { parseRecapResponse, reasoningOptions } from './src/summarizer.ts';
+import { parseRecapResponse, reasoningOptions } from '@summaries/src/summarizer.ts';
 
 test('omits reasoning when configured off', () => {
 	assert.deepEqual(reasoningOptions('off'), {});

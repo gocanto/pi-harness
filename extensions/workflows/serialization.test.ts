@@ -1,8 +1,8 @@
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'vitest';
-import { safeStringify, writeFileAtomic } from './serialization.ts';
+import { safeStringify, writeFileAtomic } from '@workflows/serialization.ts';
 
 import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 

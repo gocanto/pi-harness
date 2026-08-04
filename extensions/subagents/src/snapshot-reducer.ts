@@ -1,4 +1,4 @@
-import type { BackendName, LiveToolState, RunOutcome, QueuedMessage, SubagentEvent, SubagentMeta, SubagentOrigin, SubagentStatus, TranscriptItem } from './domain.ts';
+import type { BackendName, LiveToolState, RunOutcome, QueuedMessage, SubagentEvent, SubagentMeta, SubagentOrigin, SubagentStatus, TranscriptItem } from '@subagents/src/domain.ts';
 
 const ERROR_TEXT_MAX_LENGTH = 4_096;
 const TRANSCRIPT_TEXT_MAX_LENGTH = 64 * 1_024;

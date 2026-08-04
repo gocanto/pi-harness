@@ -1,10 +1,10 @@
-import { assert } from '../../tests/test-assert.ts';
+import { assert } from '@tests/test-assert.ts';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { test } from 'vitest';
 import { Type } from 'typebox';
-import { createChildResources } from '../shared/child-session.ts';
+import { createChildResources } from '@shared/child-session.ts';
 
 import {
 	defineTool,
@@ -27,7 +27,7 @@ import {
 	type CreateWorkflowAgentSession,
 	type ToolExecutionTiming,
 	type WorkflowModel,
-} from './runner.ts';
+} from '@workflows/runner.ts';
 
 const zeroUsage = {
 	input: 0,

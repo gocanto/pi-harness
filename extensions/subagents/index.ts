@@ -25,16 +25,16 @@ import * as path from 'node:path';
 import { StringEnum } from '@earendil-works/pi-ai';
 import { Markdown, Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
-import { resolveStandaloneChildProjectTrust } from '../shared/child-session.ts';
-import { deriveBtwTitle, isModelVisible } from './src/by-the-way.ts';
-import { SubagentManager, type SubagentManagerShape } from './src/manager.ts';
-import { DeferredResultDelivery } from '../shared/deferred-result-delivery.ts';
-import { openSubagentPicker, openSubagentTakeover } from './src/ui/takeover.ts';
+import { resolveStandaloneChildProjectTrust } from '@shared/child-session.ts';
+import { deriveBtwTitle, isModelVisible } from '@subagents/src/by-the-way.ts';
+import { SubagentManager, type SubagentManagerShape } from '@subagents/src/manager.ts';
+import { DeferredResultDelivery } from '@shared/deferred-result-delivery.ts';
+import { openSubagentPicker, openSubagentTakeover } from '@subagents/src/ui/takeover.ts';
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext, ExtensionUIContext } from '@earendil-works/pi-coding-agent';
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, getMarkdownTheme, truncateHead } from '@earendil-works/pi-coding-agent';
-import { BACKEND_NAMES, formatElapsed, latestText, REASONING_EFFORTS, type SubagentSnapshot } from './src/domain.ts';
-import { formatActivityStatus, formatContextUtilization } from './src/format.ts';
-import { createSubagentRuntime, runTool, type SubagentRuntime } from './src/runtime.ts';
+import { BACKEND_NAMES, formatElapsed, latestText, REASONING_EFFORTS, type SubagentSnapshot } from '@subagents/src/domain.ts';
+import { formatActivityStatus, formatContextUtilization } from '@subagents/src/format.ts';
+import { createSubagentRuntime, runTool, type SubagentRuntime } from '@subagents/src/runtime.ts';
 
 import {
 	buildSubagentResultMessage,
@@ -50,7 +50,7 @@ import {
 	SUBAGENT_SPAWN_TOOL_DESCRIPTION,
 	SUBAGENT_WAIT_PARAMETER_DESCRIPTIONS,
 	SUBAGENT_WAIT_TOOL_DESCRIPTION,
-} from './src/prompt.ts';
+} from '@subagents/src/prompt.ts';
 
 const SUBAGENT_OUTPUT_MAX_BYTES = 24 * 1024;
 const WAIT_OUTPUT_MAX_BYTES = 48 * 1024;
