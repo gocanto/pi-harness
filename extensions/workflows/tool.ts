@@ -153,6 +153,12 @@ export class WorkflowToolRegistrar {
 				let emitTimer: ReturnType<typeof setTimeout> | undefined;
 				let lastEmit = 0;
 
+				// Agents that outlive the shutdown deadline keep running after the run
+				// has reported its terminal state. Once closed, their late callbacks
+				// must not mutate records, schedule a checkpoint, or fire onUpdate on
+				// a tool call that has already returned.
+				let runClosed = false;
+
 				const flush = () => {
 					emitTimer = undefined;
 					lastEmit = Date.now();
@@ -168,6 +174,10 @@ export class WorkflowToolRegistrar {
 					);
 				};
 				const emit = (checkpoint = true) => {
+					if (runClosed) {
+						return;
+					}
+
 					if (checkpoint) {
 						persistence.checkpoint();
 					}
@@ -190,6 +200,10 @@ export class WorkflowToolRegistrar {
 				};
 
 				const phaseFn = (title: unknown) => {
+					if (runClosed) {
+						return;
+					}
+
 					const text = String(title);
 
 					details.currentPhase = text;
@@ -225,10 +239,12 @@ export class WorkflowToolRegistrar {
 					emit(false);
 
 					const fail = (error: string): ScriptAgentResult => {
-						record.state = 'error';
-						record.error = error;
-						record.finishedAt = Date.now();
-						emit();
+						if (!runClosed) {
+							record.state = 'error';
+							record.error = error;
+							record.finishedAt = Date.now();
+							emit();
+						}
 
 						return { ok: false, output: '', error };
 					};
@@ -310,6 +326,10 @@ export class WorkflowToolRegistrar {
 									modelRegistry: ctx.modelRegistry,
 									signal: runSignal,
 									onProgress: (progress) => {
+										if (runClosed) {
+											return;
+										}
+
 										record.preview = progress.preview.slice(0, PREVIEW_LENGTH);
 										record.usage = progress.usage;
 										record.model = progress.model ?? record.model;
@@ -320,20 +340,26 @@ export class WorkflowToolRegistrar {
 								},
 							);
 
-							record.usage = outcome.usage;
-							record.model = outcome.model ?? record.model;
-							record.contextWindow = outcome.contextWindow ?? record.contextWindow;
-							record.transcript = outcome.transcript;
-							record.preview = (outcome.output || record.preview).slice(0, PREVIEW_LENGTH);
-							record.finishedAt = Date.now();
-							record.state = outcome.ok ? 'done' : 'error';
-							if (outcome.ok) {
-								delete record.error;
-							} else {
-								record.error = outcome.error ?? 'Agent failed';
-							}
+							// Guarded: this agent may have outlived the shutdown deadline, in
+							// which case the run already recorded it as failed and reported a
+							// terminal status. Flipping it back to done here would contradict
+							// the result the caller was given.
+							if (!runClosed) {
+								record.usage = outcome.usage;
+								record.model = outcome.model ?? record.model;
+								record.contextWindow = outcome.contextWindow ?? record.contextWindow;
+								record.transcript = outcome.transcript;
+								record.preview = (outcome.output || record.preview).slice(0, PREVIEW_LENGTH);
+								record.finishedAt = Date.now();
+								record.state = outcome.ok ? 'done' : 'error';
+								if (outcome.ok) {
+									delete record.error;
+								} else {
+									record.error = outcome.error ?? 'Agent failed';
+								}
 
-							emit();
+								emit();
+							}
 
 							return {
 								ok: outcome.ok,
@@ -370,6 +396,11 @@ export class WorkflowToolRegistrar {
 					const settled = await controller.settle({
 						abort: status !== 'completed',
 					});
+
+					// Seal the run before sweeping records. `settle` resolving false means
+					// agents are still running; from here their callbacks are ignored so
+					// the terminal state below is the last word.
+					runClosed = true;
 
 					if (!settled) {
 						status = 'failed';

@@ -185,6 +185,9 @@ export function createWorkflowPersistence(
 			}
 
 			timer = setTimeout(savePending, delay);
+			// A pending checkpoint must never hold the process open on its own; the
+			// final flush is what guarantees the artifact is written.
+			timer.unref?.();
 		},
 		flush() {
 			if (timer) {

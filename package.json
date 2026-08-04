@@ -24,9 +24,9 @@
   "scripts": {
     "prepare": "effect-tsgo patch",
     "check": "pnpm run check:imports && tsc --noEmit",
-    "check:imports": "node scripts/check-import-aliases.mjs",
+    "check:imports": "node scripts/check-import-aliases.ts",
     "format": "fmtkit format --ts",
-    "format:check": "node scripts/check-format.mjs",
+    "format:check": "node scripts/check-format.ts",
     "format:all": "fmtkit format-all --ts",
     "lint": "oxlint extensions scripts",
     "test": "vitest run",

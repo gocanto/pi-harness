@@ -15,27 +15,39 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
+/** True when a caught value is a Node system error carrying the given code. */
+function hasErrorCode(error: unknown, code: string) {
+	return error instanceof Error && (error as NodeJS.ErrnoException).code === code;
+}
+
 const sourceExtensions = new Set(['.cjs', '.js', '.jsx', '.mjs', '.ts', '.tsx', '.vue']);
 
-const sourceFiles = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' })
+const sourceFiles = execFileSync(
+	'git',
+	['ls-files', '-z'],
+	{ encoding: 'utf8' },
+)
 	.split('\0')
 	.filter((file) => file && sourceExtensions.has(file.slice(file.lastIndexOf('.'))));
 
 /** Content hash per file, skipping any file missing from the working tree. */
-const hashFiles = () => {
-	const hashes = new Map();
+function hashFiles() {
+	const hashes = new Map<string, string>();
+
 	for (const file of sourceFiles) {
 		try {
-			hashes.set(file, createHash('sha256').update(readFileSync(file)).digest('hex'));
+			hashes.set(file, createHash('sha256')
+				.update(readFileSync(file))
+				.digest('hex'));
 		} catch (error) {
-			if (error.code !== 'ENOENT') {
+			if (!hasErrorCode(error, 'ENOENT')) {
 				throw error;
 			}
 		}
 	}
 
 	return hashes;
-};
+}
 
 const before = hashFiles();
 
@@ -43,9 +55,13 @@ const before = hashFiles();
 // error as well as on a genuine formatter failure. Either way this is not
 // formatting drift, and it should not surface as an unhandled stack trace.
 try {
-	execFileSync('fmtkit', ['format-all', '--ts', '--quiet'], { stdio: 'inherit' });
+	execFileSync(
+		'fmtkit',
+		['format-all', '--ts', '--quiet'],
+		{ stdio: 'inherit' },
+	);
 } catch (error) {
-	if (error.code === 'ENOENT') {
+	if (hasErrorCode(error, 'ENOENT')) {
 		console.error('fmtkit is not installed. See https://github.com/oullin/fmtkit, or `brew install oullin/fmtkit/fmtkit`.');
 	} else {
 		console.error('The formatter exited non-zero (see its output above). That is a formatter or lint failure, not formatting drift.');
@@ -62,6 +78,7 @@ if (drifted.length === 0) {
 }
 
 console.error(`Formatting drift in ${drifted.length} file(s):`);
+
 for (const file of drifted) {
 	console.error(`- ${file}`);
 }
