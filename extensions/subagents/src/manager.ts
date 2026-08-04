@@ -285,6 +285,14 @@ const makeManager = Effect.gen(function* () {
 				return Effect.void;
 			});
 
+			// Holds the entry scope only while nothing else owns the live child: set
+			// the moment the scope exists, cleared once the entry is in the registry.
+			// `yield* session.meta` between those points is an interruption point (a
+			// tool abort, ESC, or runtime dispose lands there), and without this the
+			// backend process would survive for the life of the pi process owned by
+			// nobody -- no scope, no registry entry, nothing to close it.
+			let unownedScope: Scope.Scope | undefined;
+
 			const doSpawn = Effect.gen(function* () {
 				const backend: SubagentBackend | undefined = registry.get(backendName);
 
@@ -304,11 +312,11 @@ const makeManager = Effect.gen(function* () {
 
 				const scope = yield* Scope.make();
 
-				const session = yield* Scope.provide(backend.spawn(task), scope).pipe(Effect.onError(() => Scope.close(scope, Exit.void)));
+				unownedScope = scope;
+
+				const session = yield* Scope.provide(backend.spawn(task), scope);
 
 				if (disposed) {
-					yield* Scope.close(scope, Exit.void);
-
 					return yield* new SpawnError({
 						message: 'Subagent manager shut down while spawning.',
 					});
@@ -354,6 +362,8 @@ const makeManager = Effect.gen(function* () {
 					},
 				);
 				entries.set(id, entry);
+				// The registry owns the scope from here; disposeAll will close it.
+				unownedScope = undefined;
 
 				// Pump: reduce the event stream into the snapshot. Tied to the entry
 				// scope, so closing the scope stops it. If the stream ends while the
@@ -382,6 +392,13 @@ const makeManager = Effect.gen(function* () {
 			});
 
 			return yield* doSpawn.pipe(
+				Effect.onExit((exit) => {
+					const orphan = unownedScope;
+
+					unownedScope = undefined;
+
+					return orphan && !Exit.isSuccess(exit) ? Scope.close(orphan, Exit.void) : Effect.void;
+				}),
 				Effect.ensuring(
 					Effect.sync(() => {
 						reserved--;
