@@ -142,7 +142,11 @@ function entriesForMessage(message: AgentMessage, toolTimings: ReadonlyMap<strin
 	];
 }
 
-function boundTranscriptEntries(entries: TranscriptEntry[]) {
+/**
+ * `droppedBefore` counts entries already discarded by the caller's own
+ * retention, so the truncation notice can still report the true total.
+ */
+function boundTranscriptEntries(entries: TranscriptEntry[], droppedBefore = 0) {
 	const selected = entries.length <= TRANSCRIPT_MAX_ENTRIES ? entries : [entries[0], ...entries.slice(-(TRANSCRIPT_MAX_ENTRIES - 1))];
 	const bounded: TranscriptEntry[] = [];
 
@@ -164,8 +168,10 @@ function boundTranscriptEntries(entries: TranscriptEntry[]) {
 		bounded.push({ ...entry, text: text === entry.text ? text : `${text}\n[transcript entry truncated]` });
 	}
 
-	if (bounded.length < entries.length) {
-		bounded.push({ role: 'toolResult', name: 'transcript', text: `[transcript truncated: retained ${bounded.length} of ${entries.length} entries]` });
+	const total = entries.length + droppedBefore;
+
+	if (bounded.length < total) {
+		bounded.push({ role: 'toolResult', name: 'transcript', text: `[transcript truncated: retained ${bounded.length} of ${total} entries]` });
 	}
 
 	return bounded;
@@ -230,6 +236,7 @@ export class IncrementalProgressTracker {
 	private _errorMessage?: string;
 	private _preview = '';
 	private _entries: TranscriptEntry[] = [];
+	private _droppedEntries = 0;
 	private readonly _toolEntryIndexes = new Map<string, number[]>();
 
 	constructor(modelId?: string, contextWindow?: number) {
@@ -263,7 +270,7 @@ export class IncrementalProgressTracker {
 
 	/** Return the same bounded transcript shape as the full rescan. */
 	transcript() {
-		return boundTranscriptEntries(this._entries);
+		return boundTranscriptEntries(this._entries, this._droppedEntries);
 	}
 
 	/** Overlay live context-window occupancy onto the running usage state. */
@@ -334,6 +341,7 @@ export class IncrementalProgressTracker {
 		this._usage = emptyUsage();
 		this._preview = '';
 		this._entries = [];
+		this._droppedEntries = 0;
 		this._toolEntryIndexes.clear();
 
 		for (const message of messages) {
@@ -352,6 +360,51 @@ export class IncrementalProgressTracker {
 				indexes.push(index);
 				this._toolEntryIndexes.set(entry.toolCallId, indexes);
 			}
+		}
+
+		this.compactEntries();
+	}
+
+	/**
+	 * Discard entries that no transcript can ever show again.
+	 *
+	 * `transcript()` runs on every tool start/end and message end, and each call
+	 * rescans everything retained. Without this the retained list grows for the
+	 * life of the agent, so a long run rescans an ever-growing list hundreds of
+	 * times -- quadratic in turn count, over up to 256KB of text.
+	 *
+	 * The kept window is exactly what boundTranscriptEntries would select (the
+	 * first entry plus the most recent ones), so the emitted transcript is
+	 * unchanged; only the retained state shrinks. Compaction runs on hysteresis
+	 * rather than on every append to keep the rebuild amortized.
+	 */
+	private compactEntries() {
+		if (this._entries.length <= TRANSCRIPT_MAX_ENTRIES * 2) {
+			return;
+		}
+
+		const first = this._entries[0];
+
+		if (!first) {
+			return;
+		}
+
+		const retained = [first, ...this._entries.slice(-(TRANSCRIPT_MAX_ENTRIES - 1))];
+
+		this._droppedEntries += this._entries.length - retained.length;
+		this._entries = retained;
+
+		this._toolEntryIndexes.clear();
+
+		for (const [index, entry] of retained.entries()) {
+			if (!entry.toolCallId) {
+				continue;
+			}
+
+			const indexes = this._toolEntryIndexes.get(entry.toolCallId) ?? [];
+
+			indexes.push(index);
+			this._toolEntryIndexes.set(entry.toolCallId, indexes);
 		}
 	}
 }
