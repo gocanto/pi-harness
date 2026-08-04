@@ -14,6 +14,8 @@
   "devDependencies": {
     "@effect/tsgo": "^0.24.2",
     "@types/node": "^26.1.1",
+    "@vitest/coverage-v8": "^4.1.10",
+    "oxlint": "^1.77.0",
     "typescript": "^7.0.2",
     "vite": "^8.1.5",
     "vitest": "^4.1.10"
@@ -24,10 +26,12 @@
     "check": "pnpm run check:imports && tsc --noEmit",
     "check:imports": "node scripts/check-import-aliases.mjs",
     "format": "fmtkit format --ts",
-    "format:check": "fmtkit format --ts",
+    "format:check": "node scripts/check-format.mjs",
     "format:all": "fmtkit format-all --ts",
+    "lint": "oxlint extensions scripts",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:live": "vitest run --config vitest.live.config.ts",
-    "verify": "pnpm run format:check && pnpm run check && pnpm test"
+    "verify": "pnpm run format:check && pnpm run lint && pnpm run check && pnpm test"
   }
 }

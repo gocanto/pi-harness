@@ -11,7 +11,20 @@ for (const file of files) {
 		continue;
 	}
 
-	const source = readFileSync(file, 'utf8');
+	// A tracked file can be absent from the working tree (deleted but not yet
+	// staged, uninitialized submodule). That is not an alias violation, so skip
+	// it rather than crashing the whole check with an ENOENT stack trace.
+	let source;
+	try {
+		source = readFileSync(file, 'utf8');
+	} catch (error) {
+		if (error.code === 'ENOENT') {
+			continue;
+		}
+
+		throw error;
+	}
+
 	for (const match of source.matchAll(moduleSpecifierPattern)) {
 		violations.push(`${file}: ${match[2]}`);
 	}
