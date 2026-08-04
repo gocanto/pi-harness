@@ -112,7 +112,17 @@ const makeCodexSession = (task: SpawnTask): Effect.Effect<SubagentSession, Spawn
 				return false;
 			}
 
-			child.stdin.write(`${JSON.stringify(message)}\n`);
+			// `writable` is a check-then-act: the app-server can die between the
+			// guard above and the write below, and an EPIPE then surfaces either as
+			// a throw here or as an 'error' event on the stream (handled further
+			// down). Neither may escape as an uncaught exception.
+			try {
+				child.stdin.write(`${JSON.stringify(message)}\n`);
+			} catch (error) {
+				failForProcessExit(`Codex app-server stdin failed: ${CodexProtocol.boundedError(error)}`);
+
+				return false;
+			}
 
 			return true;
 		};
@@ -812,6 +822,13 @@ const makeCodexSession = (task: SpawnTask): Effect.Effect<SubagentSession, Spawn
 		child.stderr.on('data', (chunk: string) => {
 			state.stderr = `${state.stderr}${chunk}`.slice(-4096);
 		});
+		// Stream-level failures (an EPIPE write racing the child's exit, a read
+		// error) are emitted on the individual stdio streams, not on the child. Left
+		// unhandled, Node turns them into uncaught exceptions that take the whole pi
+		// process down; the session should just fail instead.
+		child.stdin.on('error', (error) => failForProcessExit(`Codex app-server stdin failed: ${CodexProtocol.boundedError(error)}`));
+		child.stdout.on('error', (error) => failForProcessExit(`Codex app-server stdout failed: ${CodexProtocol.boundedError(error)}`));
+		child.stderr.on('error', (error) => failForProcessExit(`Codex app-server stderr failed: ${CodexProtocol.boundedError(error)}`));
 		child.once('error', (error) => failForProcessExit(`Codex app-server failed: ${CodexProtocol.boundedError(error)}`));
 		child.once('exit', (code, signal) => {
 			const suffix = CodexProtocol.firstLine(state.stderr);

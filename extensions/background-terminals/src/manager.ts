@@ -274,6 +274,16 @@ const makeManager = Effect.gen(function* () {
 
 					notify(id);
 				});
+				// Stream-level failures are emitted on the individual stdio streams
+				// rather than on the child. Unhandled they become uncaught exceptions
+				// that take the host process down, so record the text and let the
+				// child's own 'error'/'close' handling settle the terminal.
+				child.stdout?.on('error', (error) => {
+					snapshot.errorText ??= boundedError(error);
+				});
+				child.stderr?.on('error', (error) => {
+					snapshot.errorText ??= boundedError(error);
+				});
 				// Spawn failures (ENOENT etc.) arrive via 'error', not a throw. Node
 				// still emits 'close' afterwards (with a bogus errno as code), so
 				// record the failure here and let the close path do the one settle.
