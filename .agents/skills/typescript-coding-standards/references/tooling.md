@@ -92,23 +92,29 @@ see the Local reference section in [../SKILL.md](../SKILL.md).
 
 ## Local status (this repository — delete when mounting elsewhere)
 
-- Commands: `pnpm run typecheck` (vue-tsc + electron tsc + infra tsc),
-  `npx vp lint`, `pnpm test` (`vp run -r test`), `make format`.
-- tsconfig: there is **no shared base file yet** and none of the four flags
-  above are set (`infra/tsconfig.json`, `apps/app/tsconfig.json`,
-  `apps/app/tsconfig.electron.json` are independent; `apps/ui` extends
-  `apps/app`). Adopting all four was measured at ~30 mechanical errors
-  (mostly `exactOptionalPropertyTypes` in `apps/ui` prop-forwarding
-  wrappers) — a small, staged follow-up.
-- oxlint: configured inline in the root `vite.config.ts` `lint` block; the
-  only explicit rule today is `vite-plus/prefer-vite-plus-imports`.
-  `no-explicit-any` is not yet enabled (measured at 0 violations — free to
-  turn on); `no-non-null-assertion` has 10. The lint baseline currently
-  exits non-zero (~87 findings) and there is no CI lint job — both must be
-  fixed before lint can gate.
-- Formatter: oxfmt via vite-plus, configured in the root `vite.config.ts`
-  `fmt` block (`singleQuote`, `useTabs`, `printWidth: 190`; `.agents/**` is
-  format-ignored).
+- Commands: `pnpm run verify` is the whole gate (lint → format:check →
+  typecheck → tests). Individually: `pnpm run lint`, `pnpm run format`,
+  `pnpm run check`, `pnpm test`. `make verify` delegates to the same script
+  so the two cannot drift. There is no `vp`/vite-plus and no `vite.config.ts`
+  in this repo.
+- tsconfig: a single root `tsconfig.json` covering `extensions/**/*.ts`, with
+  `strict: true`. None of the four extra flags above are set yet. Per-extension
+  tsconfigs exist but nothing runs them — the root config is the only
+  typecheck. Note TypeScript 7 removed `baseUrl` and rejects non-relative
+  `paths`; both are already fixed here, so keep alias paths `./`-prefixed.
+- oxlint: configured in `.oxlintrc.json` and run directly (`pnpm run lint`),
+  not through `fmtkit lint`, which produces no output and always exits 0 in
+  this repo. `correctness` is error. `no-explicit-any` is error and the
+  baseline is 0. `no-non-null-assertion` is a warning with 16 occurrences —
+  warnings do not gate. `unicorn/no-useless-spread` is off: every report was
+  a `[...collection]` snapshot taken because the loop body mutates that same
+  collection, so "fixing" them would introduce mutation-during-iteration bugs.
+- Formatter: fmtkit (`brew install oullin/fmtkit/fmtkit`), which wraps oxfmt
+  plus its own blank-lines/fluent-chains passes. Its output differs from bare
+  oxfmt, so do not substitute one for the other. fmtkit has no TS check mode,
+  so `scripts/check-format.mjs` gates by hashing files before and after a
+  format run. CI installs the pinned release by checksum; bump
+  `FMTKIT_VERSION` and `FMTKIT_SHA256` in `.github/workflows/ci.yml` together.
 - JSDoc: review-enforced only; no jsdoc lint plugin is configured.
 
 ## Quick Reference
