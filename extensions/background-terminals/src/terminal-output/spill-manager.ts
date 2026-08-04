@@ -124,6 +124,19 @@ export class OutputSpillManager {
 						entry.snapshot.errorText ??= 'Full-log spill flush timed out; full output may be incomplete';
 					}),
 			}),
+			// The streams were detached from the entry above, so once this effect
+			// leaves nothing else references them. If it timed out or was
+			// interrupted before `end` completed, the descriptors would stay open
+			// with no way to reach them.
+			Effect.onExit(() =>
+				Effect.sync(() => {
+					for (const stream of streams) {
+						if (!stream.closed) {
+							stream.destroy();
+						}
+					}
+				}),
+			),
 		);
 	}
 

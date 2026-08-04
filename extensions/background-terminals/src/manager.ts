@@ -34,6 +34,10 @@ const STOP_TIMEOUT_MS = 5_000;
 /** After termination, how long to wait for the natural close→flush→settle
  * path before force-settling (a grandchild can hold the stdio pipes open). */
 const SETTLE_GRACE_MS = 1_000;
+/** Upper bound on how long bg_kill waits for a terminal to publish its
+ * settlement. Comfortably covers SIGTERM -> SIGKILL escalation plus the
+ * force-settle grace, so reaching it means something is genuinely wedged. */
+const KILL_SETTLE_TIMEOUT_MS = STOP_TIMEOUT_MS + SETTLE_GRACE_MS * 2;
 const ERROR_TEXT_MAX_LENGTH = 4_096;
 
 function bounded(text: string) {
@@ -158,7 +162,22 @@ const makeManager = Effect.gen(function* () {
 
 		entry.settling = true;
 		runCleanup(
-			outputSpills.flush(entry).pipe(Effect.andThen(Effect.sync(() => settle(entry)))),
+			outputSpills.flush(entry).pipe(
+				Effect.andThen(Effect.sync(() => settle(entry))),
+				// This runs on a detached fiber, so it can be interrupted (manager
+				// scope close, prune, runtime dispose) before it settles. `settling`
+				// is what makes the force-settle path stand down, so leaving it set
+				// after a failed attempt strands the entry 'running' forever: it holds
+				// a concurrency slot, blocks pruning, and hangs every kill() waiting
+				// on its deferred. Clear it so the force-settle path can take over.
+				Effect.onExit((exit) =>
+					Effect.sync(() => {
+						if (!Exit.isSuccess(exit)) {
+							entry.settling = false;
+						}
+					}),
+				),
+			),
 		);
 	};
 
@@ -438,7 +457,14 @@ const makeManager = Effect.gen(function* () {
 				// Every caller waits on the entries that were running when its kill
 				// began. Deferred completion cannot be missed and supports concurrent
 				// overlapping/multi-id kill calls.
-				yield* Effect.forEach(running, (entry) => Deferred.await(entry.settled), { concurrency: 'unbounded', discard: true });
+				// Bounded: killEntry escalates to SIGKILL and the force-settle path
+				// backstops it, but neither is a guarantee that the deferred completes
+				// (a wedged flush, an interrupted cleanup fiber). bg_kill must return
+				// either way rather than hanging until the model's tool call aborts.
+				yield* Effect.forEach(running, (entry) => Deferred.await(entry.settled).pipe(Effect.timeout(KILL_SETTLE_TIMEOUT_MS), Effect.ignore), {
+					concurrency: 'unbounded',
+					discard: true,
+				});
 				// Capture the report BEFORE the ensuring below releases interest and
 				// prunes — a just-settled entry must not vanish out from under it.
 				return unique.map((id): KillResult => {

@@ -437,6 +437,28 @@ const makeManager = Effect.gen(function* () {
 			);
 		});
 
+	const forceSettle = (entry: Entry, reason: string) =>
+		Effect.gen(function* () {
+			if (entry.snapshot.status !== 'running') {
+				return;
+			}
+
+			// Settle before closing the scope so the pump's stream-ended
+			// fallback ("Backend event stream ended unexpectedly") cannot win
+			// the race and report the wrong terminal reason.
+			yield* Effect.sync(() => {
+				settle(
+					entry,
+					{ _tag: 'Interrupted' },
+				);
+				entry.snapshot.errorText = reason;
+				notify(entry.snapshot.id);
+			});
+			// Bound the close like disposeAll does: a stuck backend finalizer
+			// must not hang cancel after the run is already settled.
+			yield* closeEntryScope(entry).pipe(Effect.timeout(STOP_TIMEOUT_MS), Effect.ignore);
+		});
+
 	const abortEntry = (entry: Entry) =>
 		Effect.gen(function* () {
 			if (entry.snapshot.status !== 'running') {
@@ -446,20 +468,7 @@ const makeManager = Effect.gen(function* () {
 			const graceful = yield* entry.session.interrupt.pipe(Effect.timeout(STOP_TIMEOUT_MS), Effect.result);
 
 			if (Result.isFailure(graceful)) {
-				// Settle before closing the scope so the pump's stream-ended
-				// fallback ("Backend event stream ended unexpectedly") cannot win
-				// the race and report the wrong terminal reason.
-				yield* Effect.sync(() => {
-					settle(
-						entry,
-						{ _tag: 'Interrupted' },
-					);
-					entry.snapshot.errorText = 'Abort deadline exceeded; session was force-disposed';
-					notify(entry.snapshot.id);
-				});
-				// Bound the close like disposeAll does: a stuck backend finalizer
-				// must not hang cancel after the run is already settled.
-				yield* closeEntryScope(entry).pipe(Effect.timeout(STOP_TIMEOUT_MS), Effect.ignore);
+				yield* forceSettle(entry, 'Abort deadline exceeded; session was force-disposed');
 			}
 		});
 
@@ -479,9 +488,24 @@ const makeManager = Effect.gen(function* () {
 					concurrency: 'unbounded',
 				});
 
-				while (running.some((entry) => entry.snapshot.status === 'running')) {
-					yield* nextChange;
-				}
+				// Bounded: abortEntry only force-settles when `interrupt` fails, so a
+				// backend that acknowledges the interrupt and then never emits
+				// RunSettled would park here forever (codex's interrupt just arms a
+				// timer and resolves). subagent_cancel has to return either way.
+				yield* Effect.gen(function* () {
+					while (running.some((entry) => entry.snapshot.status === 'running')) {
+						yield* nextChange;
+					}
+				}).pipe(
+					Effect.timeoutOrElse({
+						duration: STOP_TIMEOUT_MS,
+						orElse: () =>
+							Effect.forEach(running, (entry) => forceSettle(entry, 'Cancel deadline exceeded; session was force-disposed'), {
+								concurrency: 'unbounded',
+								discard: true,
+							}),
+					}),
+				);
 			});
 
 			return work.pipe(
