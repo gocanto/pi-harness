@@ -7,26 +7,26 @@ The Ollin parent maintains this index during dispatched execution.
 
 ## Execution order & status
 
-| Plan | Title | Priority | Effort | Depends on | Status |
-| --- | --- | --- | --- | --- | --- |
-| 001 | Separate live provider tests from default verification | P1 | S/M | — | DONE |
-| 002 | Standardize setup on pnpm and declare prerequisites | P1 | S | 001 | DONE |
-| 003 | Add automated verification for the workspace | P1 | M | 001, 002 | DONE |
-| 004 | Enforce trust before granting autonomous subagent access | P1 | L | — | DONE |
-| 005 | Bound asynchronous workflow execution | P1 | M | — | DONE |
-| 006 | Retain-limit and protect captured artifacts | P1 | M | — | DONE |
-| 007 | Preserve deferred subagent results across delivery failures | P1 | S | — | DONE |
-| 008 | Retry failed pull-request lookups | P1 | S | — | DONE |
-| 009 | Give workflows an explicit workspace package boundary | P1 | M | — | DONE |
-| 010 | Add end-to-end coverage for workflow agent execution | P1 | L | 009 | DONE |
-| 011 | Make workflow progress and dashboard reads incremental | P2 | M | 009, 010 | DONE |
-| 012 | Batch and lazily load changed-file diffs | P2 | M/L | — | DONE |
-| 013 | Replace obsolete implementation documentation | P2 | M | 001, 002, 009 | DONE |
-| 014 | Align the Effect beta version policy | P2 | M | 002, 009 | DONE |
-| 015 | Design durable workflow recovery | P2 | L | 005, 006, 011 | DONE |
-| 016 | Design a unified job surface for long-running work | P3 | L | 004, 005, 015 | DONE |
-| 017 | Replace hidden workflow activation with explicit policy | P3 | S/M | 003, 005 | DONE |
-| 018 | Define a cross-harness capability and cost matrix | P3 | M/L | 004, 013 | DONE |
+| Plan | Title                                                       | Priority | Effort | Depends on    | Status |
+| ---- | ----------------------------------------------------------- | -------- | ------ | ------------- | ------ |
+| 001  | Separate live provider tests from default verification      | P1       | S/M    | —             | DONE   |
+| 002  | Standardize setup on pnpm and declare prerequisites         | P1       | S      | 001           | DONE   |
+| 003  | Add automated verification for the workspace                | P1       | M      | 001, 002      | DONE   |
+| 004  | Enforce trust before granting autonomous subagent access    | P1       | L      | —             | DONE   |
+| 005  | Bound asynchronous workflow execution                       | P1       | M      | —             | DONE   |
+| 006  | Retain-limit and protect captured artifacts                 | P1       | M      | —             | DONE   |
+| 007  | Preserve deferred subagent results across delivery failures | P1       | S      | —             | DONE   |
+| 008  | Retry failed pull-request lookups                           | P1       | S      | —             | DONE   |
+| 009  | Give workflows an explicit workspace package boundary       | P1       | M      | —             | DONE   |
+| 010  | Add end-to-end coverage for workflow agent execution        | P1       | L      | 009           | DONE   |
+| 011  | Make workflow progress and dashboard reads incremental      | P2       | M      | 009, 010      | DONE   |
+| 012  | Batch and lazily load changed-file diffs                    | P2       | M/L    | —             | DONE   |
+| 013  | Replace obsolete implementation documentation               | P2       | M      | 001, 002, 009 | DONE   |
+| 014  | Align the Effect beta version policy                        | P2       | M      | 002, 009      | DONE   |
+| 015  | Design durable workflow recovery                            | P2       | L      | 005, 006, 011 | DONE   |
+| 016  | Design a unified job surface for long-running work          | P3       | L      | 004, 005, 015 | DONE   |
+| 017  | Replace hidden workflow activation with explicit policy     | P3       | S/M    | 003, 005      | DONE   |
+| 018  | Define a cross-harness capability and cost matrix           | P3       | M/L    | 004, 013      | DONE   |
 
 Status values: `TODO` | `IN PROGRESS` | `READY FOR PR` | `PR DRAFT` |
 `PR READY` | `DONE` | `BLOCKED` | `REJECTED`.

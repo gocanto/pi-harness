@@ -34,11 +34,11 @@ The subagent tool presents Pi, Claude, and Codex as one choice, but their permis
 
 ## Commands you will need
 
-| Purpose | Command | Expected |
-|---|---|---|
-| Tests | `pnpm --filter subagents test` | pass |
-| Typecheck | `pnpm run check` | pass |
-| Formatting | `pnpm run format:check` | pass |
+| Purpose    | Command                        | Expected |
+| ---------- | ------------------------------ | -------- |
+| Tests      | `pnpm --filter subagents test` | pass     |
+| Typecheck  | `pnpm run check`               | pass     |
+| Formatting | `pnpm run format:check`        | pass     |
 
 ## Scope
 

@@ -35,11 +35,11 @@ Workflows persist artifacts for inspection but explicitly cannot resume; interru
 
 ## Commands you will need
 
-| Purpose | Command | Expected |
-|---|---|---|
-| Tests | `pnpm test` | pass |
-| Typecheck | `pnpm run check` | pass |
-| Formatting | `pnpm run format:check` | pass |
+| Purpose    | Command                 | Expected |
+| ---------- | ----------------------- | -------- |
+| Tests      | `pnpm test`             | pass     |
+| Typecheck  | `pnpm run check`        | pass     |
+| Formatting | `pnpm run format:check` | pass     |
 
 ## Scope
 

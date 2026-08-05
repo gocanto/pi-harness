@@ -34,11 +34,11 @@ The VM timeout protects only initial script invocation. The workflow promise may
 
 ## Commands you will need
 
-| Purpose | Command | Expected |
-|---|---|---|
-| Tests | `pnpm --filter workflows test` | all workflow tests pass |
-| Typecheck | `pnpm run check` | exit 0 |
-| Formatting | `pnpm run format:check` | exit 0 |
+| Purpose    | Command                        | Expected                |
+| ---------- | ------------------------------ | ----------------------- |
+| Tests      | `pnpm --filter workflows test` | all workflow tests pass |
+| Typecheck  | `pnpm run check`               | exit 0                  |
+| Formatting | `pnpm run format:check`        | exit 0                  |
 
 ## Scope
 

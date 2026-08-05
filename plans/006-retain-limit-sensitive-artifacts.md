@@ -35,11 +35,11 @@ Workflow transcripts/results and truncated file-search output can contain reposi
 
 ## Commands you will need
 
-| Purpose | Command | Expected |
-|---|---|---|
-| Tests | `pnpm --filter file-search test && pnpm --filter workflows test` | pass |
-| Typecheck | `pnpm run check` | exit 0 |
-| Formatting | `pnpm run format:check` | exit 0 |
+| Purpose    | Command                                                          | Expected |
+| ---------- | ---------------------------------------------------------------- | -------- |
+| Tests      | `pnpm --filter file-search test && pnpm --filter workflows test` | pass     |
+| Typecheck  | `pnpm run check`                                                 | exit 0   |
+| Formatting | `pnpm run format:check`                                          | exit 0   |
 
 ## Scope
 

@@ -35,11 +35,11 @@ README advertises workflows, subagents, and background terminals, but each has s
 
 ## Commands you will need
 
-| Purpose | Command | Expected |
-|---|---|---|
-| Tests | `pnpm test` | pass |
-| Typecheck | `pnpm run check` | pass |
-| Formatting | `pnpm run format:check` | pass |
+| Purpose    | Command                 | Expected |
+| ---------- | ----------------------- | -------- |
+| Tests      | `pnpm test`             | pass     |
+| Typecheck  | `pnpm run check`        | pass     |
+| Formatting | `pnpm run format:check` | pass     |
 
 ## Scope
 

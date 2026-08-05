@@ -34,12 +34,12 @@ The workflow execution path is central but current tests mostly exercise pure he
 
 ## Commands you will need
 
-| Purpose | Command | Expected |
-|---|---|---|
-| Focused tests | `pnpm --filter workflows test` | pass |
-| Root tests | `pnpm test` | pass |
-| Typecheck | `pnpm run check` | exit 0 |
-| Formatting | `pnpm run format:check` | exit 0 |
+| Purpose       | Command                        | Expected |
+| ------------- | ------------------------------ | -------- |
+| Focused tests | `pnpm --filter workflows test` | pass     |
+| Root tests    | `pnpm test`                    | pass     |
+| Typecheck     | `pnpm run check`               | exit 0   |
+| Formatting    | `pnpm run format:check`        | exit 0   |
 
 ## Scope
 

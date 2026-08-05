@@ -35,12 +35,12 @@ The manifests use floating `^4.0.0-beta.99` ranges while the lockfile resolves a
 
 ## Commands you will need
 
-| Purpose | Command | Expected |
-|---|---|---|
-| Dependency graph | `pnpm why effect -r` | all workspace consumers listed |
-| Frozen install | `pnpm install --frozen-lockfile` | exit 0 |
-| Verification | `pnpm run verify` | exit 0 |
-| Formatting | `pnpm run format:check` | exit 0 |
+| Purpose          | Command                          | Expected                       |
+| ---------------- | -------------------------------- | ------------------------------ |
+| Dependency graph | `pnpm why effect -r`             | all workspace consumers listed |
+| Frozen install   | `pnpm install --frozen-lockfile` | exit 0                         |
+| Verification     | `pnpm run verify`                | exit 0                         |
+| Formatting       | `pnpm run format:check`          | exit 0                         |
 
 ## Scope
 

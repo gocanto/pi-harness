@@ -36,12 +36,12 @@ The repository is a pnpm workspace, but setup tells users to run `npm install`. 
 
 ## Commands you will need
 
-| Purpose | Command | Expected |
-|---|---|---|
-| Clean install check | `pnpm install --frozen-lockfile` | exit 0 |
-| Typecheck | `pnpm run check` | exit 0 |
-| Tests | `pnpm test` | all deterministic tests pass |
-| Formatting | `pnpm run format:check` | exit 0 |
+| Purpose             | Command                          | Expected                     |
+| ------------------- | -------------------------------- | ---------------------------- |
+| Clean install check | `pnpm install --frozen-lockfile` | exit 0                       |
+| Typecheck           | `pnpm run check`                 | exit 0                       |
+| Tests               | `pnpm test`                      | all deterministic tests pass |
+| Formatting          | `pnpm run format:check`          | exit 0                       |
 
 ## Scope
 

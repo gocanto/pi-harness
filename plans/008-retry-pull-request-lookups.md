@@ -33,11 +33,11 @@ The first refresh marks a branch as queried before `gh pr view` completes. Becau
 
 ## Commands you will need
 
-| Purpose | Command | Expected |
-|---|---|---|
-| Tests | `pnpm --filter git-info test` | pass |
-| Typecheck | `pnpm run check` | exit 0 |
-| Formatting | `pnpm run format:check` | exit 0 |
+| Purpose    | Command                       | Expected |
+| ---------- | ----------------------------- | -------- |
+| Tests      | `pnpm --filter git-info test` | pass     |
+| Typecheck  | `pnpm run check`              | exit 0   |
+| Formatting | `pnpm run format:check`       | exit 0   |
 
 ## Scope
 

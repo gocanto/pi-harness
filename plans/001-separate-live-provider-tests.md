@@ -34,12 +34,12 @@ The root test command currently globs every top-level extension test, including 
 
 ## Commands you will need
 
-| Purpose | Command | Expected |
-|---|---|---|
-| Typecheck | `pnpm run check` | exit 0 |
-| Default tests | `pnpm test` | deterministic tests pass without invoking Claude/Codex |
-| Live tests | `pnpm --filter subagents run test:live` | explicit command; pass or skip according to local provider availability |
-| Formatting | `pnpm run format:check` | all files formatted |
+| Purpose       | Command                                 | Expected                                                                |
+| ------------- | --------------------------------------- | ----------------------------------------------------------------------- |
+| Typecheck     | `pnpm run check`                        | exit 0                                                                  |
+| Default tests | `pnpm test`                             | deterministic tests pass without invoking Claude/Codex                  |
+| Live tests    | `pnpm --filter subagents run test:live` | explicit command; pass or skip according to local provider availability |
+| Formatting    | `pnpm run format:check`                 | all files formatted                                                     |
 
 ## Scope
 

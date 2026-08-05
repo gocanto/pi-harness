@@ -36,12 +36,12 @@ The workspace treats each `extensions/*` directory as a package, but workflows h
 
 ## Commands you will need
 
-| Purpose | Command | Expected |
-|---|---|---|
+| Purpose             | Command                         | Expected                          |
+| ------------------- | ------------------------------- | --------------------------------- |
 | Workspace discovery | `pnpm --filter workflows check` | succeeds after the package exists |
-| Root typecheck | `pnpm run check` | exit 0 |
-| Tests | `pnpm test` | all pass |
-| Formatting | `pnpm run format:check` | exit 0 |
+| Root typecheck      | `pnpm run check`                | exit 0                            |
+| Tests               | `pnpm test`                     | all pass                          |
+| Formatting          | `pnpm run format:check`         | exit 0                            |
 
 ## Scope
 

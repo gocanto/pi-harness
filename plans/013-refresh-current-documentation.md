@@ -35,10 +35,10 @@ Maintainers and coding agents can follow stale guidance instead of the committed
 
 ## Commands you will need
 
-| Purpose | Command | Expected |
-|---|---|---|
-| Tests | `pnpm test` | pass |
-| Formatting | `pnpm run format:check` | pass |
+| Purpose         | Command                                                                   | Expected                        |
+| --------------- | ------------------------------------------------------------------------- | ------------------------------- |
+| Tests           | `pnpm test`                                                               | pass                            |
+| Formatting      | `pnpm run format:check`                                                   | pass                            |
 | Link/path audit | search docs for `/Users/davis`, `npm install`, and obsolete beta versions | no stale operational references |
 
 ## Scope

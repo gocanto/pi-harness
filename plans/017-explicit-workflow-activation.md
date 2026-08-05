@@ -34,11 +34,11 @@ The repository advertises workflows, but the model-facing description says to ca
 
 ## Commands you will need
 
-| Purpose | Command | Expected |
-|---|---|---|
-| Tests | `pnpm --filter workflows test` | pass |
-| Typecheck | `pnpm run check` | pass |
-| Formatting | `pnpm run format:check` | pass |
+| Purpose    | Command                        | Expected |
+| ---------- | ------------------------------ | -------- |
+| Tests      | `pnpm --filter workflows test` | pass     |
+| Typecheck  | `pnpm run check`               | pass     |
+| Formatting | `pnpm run format:check`        | pass     |
 
 ## Scope
 

@@ -34,11 +34,11 @@ Long-running workflows repeatedly rebuild usage, output, transcripts, and persis
 
 ## Commands you will need
 
-| Purpose | Command | Expected |
-|---|---|---|
-| Tests | `pnpm --filter workflows test` | pass |
-| Typecheck | `pnpm run check` | exit 0 |
-| Formatting | `pnpm run format:check` | exit 0 |
+| Purpose    | Command                        | Expected |
+| ---------- | ------------------------------ | -------- |
+| Tests      | `pnpm --filter workflows test` | pass     |
+| Typecheck  | `pnpm run check`               | exit 0   |
+| Formatting | `pnpm run format:check`        | exit 0   |
 
 ## Scope
 

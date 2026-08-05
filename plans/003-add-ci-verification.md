@@ -37,11 +37,11 @@ The repository has a useful local `verify` target but no tracked CI workflow. Pu
 
 ## Commands you will need
 
-| Purpose | Command | Expected |
-|---|---|---|
-| Local baseline | `pnpm run verify` | exit 0 |
+| Purpose            | Command                                                        | Expected       |
+| ------------------ | -------------------------------------------------------------- | -------------- |
+| Local baseline     | `pnpm run verify`                                              | exit 0         |
 | YAML/config review | inspect the workflow and run a local syntax check if available | valid workflow |
-| Formatting | `pnpm run format:check` | exit 0 |
+| Formatting         | `pnpm run format:check`                                        | exit 0         |
 
 ## Scope
 

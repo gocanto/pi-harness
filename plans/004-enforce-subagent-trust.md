@@ -34,11 +34,11 @@
 
 ## Commands you will need
 
-| Purpose | Command | Expected |
-|---|---|---|
-| Typecheck | `pnpm run check` | exit 0 |
-| Tests | `pnpm --filter subagents test` | all deterministic subagent tests pass |
-| Formatting | `pnpm run format:check` | exit 0 |
+| Purpose    | Command                        | Expected                              |
+| ---------- | ------------------------------ | ------------------------------------- |
+| Typecheck  | `pnpm run check`               | exit 0                                |
+| Tests      | `pnpm --filter subagents test` | all deterministic subagent tests pass |
+| Formatting | `pnpm run format:check`        | exit 0                                |
 
 ## Scope
 
