@@ -1,5 +1,5 @@
-import * as fs from "node:fs";
-import * as path from "node:path";
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 /**
  * Retention policy: workflow run artifacts (transcripts, results, scripts)
@@ -10,31 +10,28 @@ import * as path from "node:path";
 export const WORKFLOW_RETENTION_MS = 14 * 24 * 60 * 60 * 1000;
 
 interface PersistedWorkflowSummary {
-  finishedAt?: unknown;
-  startedAt?: unknown;
+	finishedAt?: unknown;
+	startedAt?: unknown;
 }
 
 /** Age of a run, preferring its recorded finish/start time and falling back to directory mtime. */
 function runAgeMs(runDir: string, now: number): number | undefined {
-  try {
-    const raw = JSON.parse(
-      fs.readFileSync(path.join(runDir, "workflow.json"), "utf8"),
-    ) as PersistedWorkflowSummary;
-    const reference =
-      typeof raw.finishedAt === "number"
-        ? raw.finishedAt
-        : typeof raw.startedAt === "number"
-          ? raw.startedAt
-          : undefined;
-    if (reference !== undefined) return now - reference;
-  } catch {
-    // Missing or unreadable workflow.json; fall through to directory mtime.
-  }
-  try {
-    return now - fs.statSync(runDir).mtimeMs;
-  } catch {
-    return undefined;
-  }
+	try {
+		const raw = JSON.parse(fs.readFileSync(path.join(runDir, 'workflow.json'), 'utf8')) as PersistedWorkflowSummary;
+		const reference = typeof raw.finishedAt === 'number' ? raw.finishedAt : typeof raw.startedAt === 'number' ? raw.startedAt : undefined;
+
+		if (reference !== undefined) {
+			return now - reference;
+		}
+	} catch {
+		// Missing or unreadable workflow.json; fall through to directory mtime.
+	}
+
+	try {
+		return now - fs.statSync(runDir).mtimeMs;
+	} catch {
+		return undefined;
+	}
 }
 
 /**
@@ -52,33 +49,39 @@ function runAgeMs(runDir: string, now: number): number | undefined {
  * @param options - Overrides for the retention window and current time (for tests).
  * @returns The run ids that were removed.
  */
-export function cleanupExpiredWorkflowRuns(
-  baseDir: string,
-  activeRunIds: ReadonlySet<string>,
-  options: { retentionMs?: number; now?: number } = {},
-): string[] {
-  const retentionMs = Math.max(0, options.retentionMs ?? WORKFLOW_RETENTION_MS);
-  const now = options.now ?? Date.now();
+export function cleanupExpiredWorkflowRuns(baseDir: string, activeRunIds: ReadonlySet<string>, options: { retentionMs?: number; now?: number } = {}): string[] {
+	const retentionMs = Math.max(0, options.retentionMs ?? WORKFLOW_RETENTION_MS);
+	const now = options.now ?? Date.now();
 
-  let names: string[] = [];
-  try {
-    names = fs.readdirSync(baseDir).filter((name) => name.startsWith("wf_"));
-  } catch {
-    return [];
-  }
+	let names: string[] = [];
 
-  const removed: string[] = [];
-  for (const runId of names) {
-    if (activeRunIds.has(runId)) continue;
-    const runDir = path.join(baseDir, runId);
-    const age = runAgeMs(runDir, now);
-    if (age === undefined || age < retentionMs) continue;
-    try {
-      fs.rmSync(runDir, { recursive: true, force: true });
-      removed.push(runId);
-    } catch {
-      // Leave it for the next sweep rather than failing the whole batch.
-    }
-  }
-  return removed;
+	try {
+		names = fs.readdirSync(baseDir).filter((name) => name.startsWith('wf_'));
+	} catch {
+		return [];
+	}
+
+	const removed: string[] = [];
+
+	for (const runId of names) {
+		if (activeRunIds.has(runId)) {
+			continue;
+		}
+
+		const runDir = path.join(baseDir, runId);
+		const age = runAgeMs(runDir, now);
+
+		if (age === undefined || age < retentionMs) {
+			continue;
+		}
+
+		try {
+			fs.rmSync(runDir, { recursive: true, force: true });
+			removed.push(runId);
+		} catch {
+			// Leave it for the next sweep rather than failing the whole batch.
+		}
+	}
+
+	return removed;
 }

@@ -13,6 +13,18 @@ pnpm install
 
 `corepack enable` and `corepack use` install the pinned pnpm version automatically. If you don't use Corepack, install pnpm 11.17.0 or newer yourself (see the [pnpm installation guide](https://pnpm.io/installation)) and run `pnpm install`.
 
+## fmtkit
+
+The repository uses [fmtkit](https://github.com/oullin/fmtkit) for TypeScript/Vue formatting and linting. On macOS, install it with Homebrew:
+
+```sh
+brew tap oullin/fmtkit
+brew install --cask fmtkit
+fmtkit version
+```
+
+On other platforms, follow the installation instructions in the upstream repository. `make format` runs fmtkit for changed files; `make format-all` formats the complete TypeScript/Vue tree.
+
 ## fd and rg tools
 
 The `file-search` extension registers `fd` and `rg` as model tools. No setup is normally needed: at startup it silently uses a system-installed `fd` (or `fdfind` on Debian/Ubuntu) and `rg` when available, or an existing fallback binary in `~/.pi/agent/bin/`. Only when neither exists does it download an official release binary (macOS/Linux, arm64/x64, over HTTPS) into `~/.pi/agent/bin/` and show a one-time notification. If your platform is unsupported, install `fd` and `rg` with your package manager and restart pi.
@@ -35,13 +47,14 @@ The choice made by `/workflows enable`/`disable` is saved under `~/.pi/agent/wor
 
 ## Testing
 
-Run the deterministic test suite before every change:
+Run the formatter and deterministic Vitest suite before every change:
 
 ```sh
+make format
 pnpm test
 ```
 
-This runs every extension's deterministic tests plus the `file-search` Vitest suite. It never starts a real Claude or Codex session, so it needs no provider credentials or installed CLIs.
+This runs every extension's deterministic Vitest suite. It never starts a real Claude or Codex session, so it needs no provider credentials or installed CLIs.
 
 The `subagents` extension also has live provider smoke tests that spawn real Claude Code and Codex sessions. They are excluded from `pnpm test` and must be run explicitly:
 
@@ -57,7 +70,7 @@ Add the included theme to `~/.pi/agent/settings.json` while keeping your existin
 
 ```json
 {
-  "theme": "github-dark-default"
+	"theme": "github-dark-default"
 }
 ```
 

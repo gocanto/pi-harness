@@ -1,46 +1,41 @@
-import assert from "node:assert/strict";
-import test from "node:test";
-import { runCommand } from "./src/process.ts";
-import { createRuntime } from "./src/runtime.ts";
+import { assert } from '@tests/test-assert.ts';
+import { test } from 'vitest';
+import { runCommand } from '@git-info/src/process.ts';
 
-const runtime = createRuntime();
+const runNode = (source: string, timeout = 1_000) => runCommand(
+	process.execPath,
+	['--input-type=module', '--eval', source],
+	process.cwd(),
+	timeout,
+);
 
-test.after(async () => {
-  await runtime.dispose();
+test('captures output and tolerates command failures', async () => {
+	const success = await runNode('process.stdout.write("out"); process.stderr.write("err")');
+
+	assert.deepEqual(success, { code: 0, stderr: 'err', stdout: 'out' });
+
+	const failure = await runNode('process.exitCode = 7');
+
+	assert.equal(failure.code, 7);
 });
 
-const runNode = (source: string, timeout = 1_000) =>
-  runtime.runPromise(
-    runCommand(
-      process.execPath,
-      ["--input-type=module", "--eval", source],
-      process.cwd(),
-      timeout,
-    ),
-  );
+test('renders platform failures without making callers handle them', async () => {
+	const command = 'git-info-command-that-does-not-exist';
 
-test("captures output and tolerates command failures", async () => {
-  const success = await runNode(
-    'process.stdout.write("out"); process.stderr.write("err")',
-  );
-  assert.deepEqual(success, { code: 0, stderr: "err", stdout: "out" });
+	const result = await runCommand(
+		command,
+		[],
+		process.cwd(),
+		1_000,
+	);
 
-  const failure = await runNode("process.exitCode = 7");
-  assert.equal(failure.code, 7);
+	assert.equal(result.code, 1);
+	assert.match(result.stderr, new RegExp(`Failed to run ${command}:`));
+	assert.match(result.stderr, /NotFound|not found|ENOENT/i);
 });
 
-test("renders platform failures without making callers handle them", async () => {
-  const command = "git-info-command-that-does-not-exist";
-  const result = await runtime.runPromise(
-    runCommand(command, [], process.cwd(), 1_000),
-  );
+test('reports command timeouts as failures', async () => {
+	const result = await runNode('setTimeout(() => {}, 1_000)', 20);
 
-  assert.equal(result.code, 1);
-  assert.match(result.stderr, new RegExp(`Failed to run ${command}:`));
-  assert.match(result.stderr, /NotFound|not found|ENOENT/i);
-});
-
-test("reports command timeouts as failures", async () => {
-  const result = await runNode("setTimeout(() => {}, 1_000)", 20);
-  assert.equal(result.code, -1);
+	assert.equal(result.code, -1);
 });

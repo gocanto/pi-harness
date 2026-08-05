@@ -1,0 +1,11 @@
+{
+	"ignorePatterns": ["node_modules", "coverage", "bin"],
+	"categories": {
+		"correctness": "error"
+	},
+	"rules": {
+		"typescript/no-explicit-any": "error",
+		"typescript/no-non-null-assertion": "warn",
+		"unicorn/no-useless-spread": "off"
+	}
+}

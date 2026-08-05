@@ -38,6 +38,10 @@ Start Pi from `~/.pi/agent`. See [`SETUP.md`](SETUP.md) for configuration, exten
 pnpm run verify
 ```
 
+## Development
+
+Development uses Vitest for all test suites, Vite 8 as the test runner foundation, and [fmtkit](https://github.com/oullin/fmtkit) for TypeScript/Vue formatting and linting. Run `make format` and `pnpm test` before submitting changes.
+
 ## License
 
 Pi Harness is released under the [MIT License](LICENSE).

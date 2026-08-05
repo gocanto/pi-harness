@@ -14,17 +14,23 @@
   "devDependencies": {
     "@effect/tsgo": "^0.24.2",
     "@types/node": "^26.1.1",
-    "prettier": "^3.9.5",
-    "typescript": "^7.0.2"
+    "@vitest/coverage-v8": "^4.1.10",
+    "typescript": "^7.0.2",
+    "vite": "^8.1.5",
+    "vitest": "^4.1.10"
   },
   "type": "module",
   "scripts": {
     "prepare": "effect-tsgo patch",
-    "check": "tsc --noEmit",
-    "format": "prettier --write \"extensions/**/*.{ts,cjs}\" \"*.json\"",
-    "format:check": "prettier --check \"extensions/**/*.{ts,cjs}\" \"*.json\"",
-    "test": "node --test --experimental-strip-types $(find extensions -name '*.test.ts' ! -path 'extensions/subagents/claude.test.ts' ! -path 'extensions/subagents/codex.test.ts' | sort) && pnpm --filter file-search test",
-    "test:live": "pnpm --filter subagents run test:live",
-    "verify": "pnpm run format:check && pnpm run check && pnpm test"
+    "check": "pnpm run check:imports && tsc --noEmit",
+    "check:imports": "node scripts/check-import-aliases.ts",
+    "format": "fmtkit format --ts",
+    "format:check": "node scripts/check-format.ts",
+    "format:all": "fmtkit format-all --ts",
+    "lint": "fmtkit lint",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:live": "vitest run --config vitest.live.config.ts",
+    "verify": "pnpm run lint && pnpm run format:check && pnpm run check && pnpm test"
   }
 }

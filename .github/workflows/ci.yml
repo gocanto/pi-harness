@@ -6,6 +6,12 @@ on:
     branches:
       - main
 
+env:
+  # Keep in step with the Homebrew cask developers install locally, so CI and
+  # local runs format identically. Bump both the version and the checksum.
+  FMTKIT_VERSION: 0.7.0
+  FMTKIT_SHA256: c6bad5944cc34939bb0d5ff3da1d41102e385884e49c0a542a6ec60c139f412e
+
 jobs:
   verify:
     name: Verify
@@ -13,6 +19,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Install fmtkit
+        run: |
+          set -euo pipefail
+          archive="fmtkit_${FMTKIT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL -o "$archive" \
+            "https://github.com/oullin/fmtkit/releases/download/v${FMTKIT_VERSION}/${archive}"
+          echo "${FMTKIT_SHA256}  ${archive}" | sha256sum --check --strict
+          tar -xzf "$archive" fmtkit
+          install -m 0755 fmtkit /usr/local/bin/fmtkit
+          rm -f "$archive" fmtkit
+          fmtkit version
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4

@@ -11,5 +11,5 @@ Rules:
 - Do not use a Markdown code fence and do not add keys or prose outside the JSON object.`;
 
 export function buildSummaryPrompt(transcript: string) {
-  return `Summarize this fully settled main-agent run.\n\n<current_run>\n${transcript}\n</current_run>`;
+	return `Summarize this fully settled main-agent run.\n\n<current_run>\n${transcript}\n</current_run>`;
 }
