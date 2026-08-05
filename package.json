@@ -15,7 +15,6 @@
     "@effect/tsgo": "^0.24.2",
     "@types/node": "^26.1.1",
     "@vitest/coverage-v8": "^4.1.10",
-    "oxlint": "^1.77.0",
     "typescript": "^7.0.2",
     "vite": "^8.1.5",
     "vitest": "^4.1.10"
@@ -28,7 +27,7 @@
     "format": "fmtkit format --ts",
     "format:check": "node scripts/check-format.ts",
     "format:all": "fmtkit format-all --ts",
-    "lint": "oxlint extensions scripts",
+    "lint": "fmtkit lint",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:live": "vitest run --config vitest.live.config.ts",

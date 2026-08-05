@@ -102,9 +102,11 @@ see the Local reference section in [../SKILL.md](../SKILL.md).
   tsconfigs exist but nothing runs them — the root config is the only
   typecheck. Note TypeScript 7 removed `baseUrl` and rejects non-relative
   `paths`; both are already fixed here, so keep alias paths `./`-prefixed.
-- oxlint: configured in `.oxlintrc.json` and run directly (`pnpm run lint`),
-  not through `fmtkit lint`, which produces no output and always exits 0 in
-  this repo. `correctness` is error. `no-explicit-any` is error and the
+- Lint: `pnpm run lint` is `fmtkit lint` (oxlint, embedded in the same
+  binary), configured by `.oxlintrc.json` at the repo root. It lints the whole
+  repo, not just changed files, and exits non-zero on errors only. Note it is
+  silent and exits 0 when no `.oxlintrc.json` is present, so an absent config
+  looks exactly like a clean run. `correctness` is error. `no-explicit-any` is error and the
   baseline is 0. `no-non-null-assertion` is a warning with 16 occurrences —
   warnings do not gate. `unicorn/no-useless-spread` is off: every report was
   a `[...collection]` snapshot taken because the loop body mutates that same
