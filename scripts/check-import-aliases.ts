@@ -9,6 +9,17 @@ function hasErrorCode(error: unknown, code: string) {
 const sourceExtensions = new Set(['.cjs', '.js', '.jsx', '.mjs', '.ts', '.tsx', '.vue']);
 const moduleSpecifierPattern = /(?:\bfrom\s*|\bimport\s*\(\s*)(['"])(\.{1,2}\/[^'"]+)\1/g;
 
+/**
+ * Aliases exist for extension sources, which are resolved by Vite (tests) or
+ * by the extension build. Tooling that runs outside that layer cannot use
+ * them: Vite loads its own config before `resolve.alias` is in effect, and
+ * `scripts/` runs under bare node, which resolves nothing but node semantics.
+ * Relative specifiers are the only thing that works there.
+ */
+function runsOutsideAliasLayer(file: string) {
+	return file.startsWith('scripts/') || /^[^/]+\.config\.ts$/.test(file);
+}
+
 const files = execFileSync(
 	'git',
 	['ls-files', '-z'],
@@ -18,7 +29,7 @@ const files = execFileSync(
 const violations: string[] = [];
 
 for (const file of files) {
-	if (!sourceExtensions.has(file.slice(file.lastIndexOf('.')))) {
+	if (!sourceExtensions.has(file.slice(file.lastIndexOf('.'))) || runsOutsideAliasLayer(file)) {
 		continue;
 	}
 

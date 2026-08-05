@@ -1,5 +1,10 @@
 {
   "name": "model-info",
+  "pi": {
+    "extensions": [
+      "./dist/index.js"
+    ]
+  },
   "scripts": {
     "check": "tsc --noEmit -p ."
   },

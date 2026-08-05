@@ -13,6 +13,28 @@ pnpm install
 
 `corepack enable` and `corepack use` install the pinned pnpm version automatically. If you don't use Corepack, install pnpm 11.17.0 or newer yourself (see the [pnpm installation guide](https://pnpm.io/installation)) and run `pnpm install`.
 
+## Build
+
+Pi does not load the extension sources. It loads a bundled form of each one, built by `pnpm run build` (also `make build`) into `extensions/<name>/dist/index.js`.
+
+The build exists because the two resolvers disagree. Extension sources import across the tree through aliases declared in `compilerOptions.paths` — `@shared/dashboard-state.ts`, `@git-info/src/process.ts` — which TypeScript and Vitest both resolve. Pi loads extensions through jiti, which applies node module resolution and never reads `paths`, so every aliased import fails at startup with `Cannot find module '@shared/dashboard-state.ts'`. The build resolves the aliases ahead of time: aliased modules are inlined into the bundle, and real dependencies (`effect`, `@earendil-works/*`, node builtins) are left as external imports that resolve normally from the extension directory.
+
+Pi is pointed at the output by each extension's `package.json`:
+
+```json
+{
+	"pi": {
+		"extensions": ["./dist/index.js"]
+	}
+}
+```
+
+Its loader honours that manifest ahead of `index.ts`, so the sources stay in place for typechecking, tests, and editing.
+
+`pnpm install` runs the build through the `prepare` lifecycle script, so a fresh clone is ready to run. **After editing an extension, run `pnpm run build` and restart Pi** — a running Pi keeps using the previous bundle, and an unbuilt change is simply not loaded. If the bundle is missing entirely, Pi falls back to `index.ts` and reports one `Failed to load extension` warning per extension at startup; that warning means "build first", not a broken extension.
+
+Build output is gitignored. The build fails loudly if an extension is missing its manifest, emits nothing, or leaves an alias specifier in the bundle.
+
 ## fmtkit
 
 The repository uses [fmtkit](https://github.com/oullin/fmtkit) for TypeScript/Vue formatting and linting. On macOS, install it with Homebrew:
@@ -47,10 +69,11 @@ The choice made by `/workflows enable`/`disable` is saved under `~/.pi/agent/wor
 
 ## Testing
 
-Run the formatter and deterministic Vitest suite before every change:
+Run the formatter, the extension build, and the deterministic Vitest suite before every change:
 
 ```sh
 make format
+pnpm run build
 pnpm test
 ```
 

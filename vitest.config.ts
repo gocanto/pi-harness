@@ -1,28 +1,12 @@
-import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { configDefaults, defineConfig } from 'vitest/config';
 
-const root = fileURLToPath(new URL('.', import.meta.url));
-
-const aliases = {
-	'@tests': resolve(root, 'tests'),
-	'@shared': resolve(root, 'extensions/shared'),
-	'@ask-user': resolve(root, 'extensions/ask-user'),
-	'@background-terminals': resolve(root, 'extensions/background-terminals'),
-	'@copy-all': resolve(root, 'extensions/copy-all'),
-	'@file-search': resolve(root, 'extensions/file-search'),
-	'@git-info': resolve(root, 'extensions/git-info'),
-	'@model-info': resolve(root, 'extensions/model-info'),
-	'@subagents': resolve(root, 'extensions/subagents'),
-	'@summaries': resolve(root, 'extensions/summaries'),
-	'@ui-customization': resolve(root, 'extensions/ui-customization'),
-	'@workflows': resolve(root, 'extensions/workflows'),
-};
+// Relative because Vite loads this file before `resolve.alias` is in effect.
+import { aliasMap, repoRoot } from './scripts/aliases.ts';
 
 /** Shared test discovery for all extension concern slices. */
 export default defineConfig({
-	root,
-	resolve: { alias: aliases },
+	root: repoRoot,
+	resolve: { alias: aliasMap() },
 	test: {
 		include: ['extensions/**/*.test.ts', 'extensions/**/*.spec.ts'],
 		// `exclude` replaces the defaults rather than merging, so the defaults

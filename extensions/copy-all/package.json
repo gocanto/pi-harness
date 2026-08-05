@@ -1,5 +1,10 @@
 {
   "name": "copy-all",
+  "pi": {
+    "extensions": [
+      "./dist/index.js"
+    ]
+  },
   "scripts": {
     "check": "tsc --noEmit -p ."
   },

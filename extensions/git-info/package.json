@@ -1,5 +1,10 @@
 {
   "name": "git-info",
+  "pi": {
+    "extensions": [
+      "./dist/index.js"
+    ]
+  },
   "private": true,
   "type": "module",
   "scripts": {

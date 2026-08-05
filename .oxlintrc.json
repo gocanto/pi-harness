@@ -1,5 +1,5 @@
 {
-	"ignorePatterns": ["node_modules", "coverage", "bin"],
+	"ignorePatterns": ["node_modules", "coverage", "bin", "dist"],
 	"categories": {
 		"correctness": "error"
 	},
