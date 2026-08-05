@@ -13,7 +13,7 @@ help:
 	@printf "  test-coverage           run extension test suites with coverage\n"
 	@printf "  format                  format changed TypeScript/Vue files with fmtkit\n"
 	@printf "  format-all              format all TypeScript/Vue files with fmtkit\n"
-	@printf "  verify                  run format-check, typecheck, and unit tests\n"
+	@printf "  verify                  run lint, format-check, typecheck, and unit tests\n"
 
 install:
 	pnpm install
@@ -36,7 +36,7 @@ format:
 	pnpm run format
 
 format-all:
-	pnpm run format:all
+	fmtkit format-all --ts
 
 verify:
 	pnpm run verify
