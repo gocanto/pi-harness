@@ -5,9 +5,9 @@
     "pnpm": ">=11.17.0"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "^0.82.0",
-    "@earendil-works/pi-coding-agent": "^0.82.0",
-    "@earendil-works/pi-tui": "^0.82.0",
+    "@earendil-works/pi-ai": "^0.83.0",
+    "@earendil-works/pi-coding-agent": "^0.83.0",
+    "@earendil-works/pi-tui": "^0.83.0",
     "acorn": "^8.17.0",
     "typebox": "^1.3.6"
   },
@@ -21,7 +21,8 @@
   },
   "type": "module",
   "scripts": {
-    "prepare": "effect-tsgo patch",
+    "prepare": "effect-tsgo patch && pnpm run build",
+    "build": "node scripts/build-extensions.ts",
     "check": "pnpm run check:imports && tsc --noEmit",
     "check:imports": "node scripts/check-import-aliases.ts",
     "format": "fmtkit format --ts",
@@ -31,6 +32,6 @@
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:live": "vitest run --config vitest.live.config.ts",
-    "verify": "pnpm run lint && pnpm run format:check && pnpm run check && pnpm test"
+    "verify": "pnpm run lint && pnpm run format:check && pnpm run check && pnpm run build && pnpm test"
   }
 }

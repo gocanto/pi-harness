@@ -32,6 +32,8 @@ corepack use pnpm@11.17.0
 pnpm install
 ```
 
+`pnpm install` also builds the extensions, because Pi loads a bundled form of them rather than the sources — see [Build](SETUP.md#build). Rebuild with `pnpm run build` (or `make build`) whenever you change an extension, then restart Pi.
+
 Start Pi from `~/.pi/agent`. See [`SETUP.md`](SETUP.md) for configuration, extension behavior, workflow activation, and verification commands.
 
 ```sh
@@ -40,7 +42,7 @@ pnpm run verify
 
 ## Development
 
-Development uses Vitest for all test suites, Vite 8 as the test runner foundation, and [fmtkit](https://github.com/oullin/fmtkit) for TypeScript/Vue formatting and linting. Run `make format` and `pnpm test` before submitting changes.
+Development uses Vitest for all test suites, Vite 8 as both the test runner foundation and the extension bundler, and [fmtkit](https://github.com/oullin/fmtkit) for TypeScript/Vue formatting and linting. Run `make format`, `pnpm run build`, and `pnpm test` before submitting changes — or `pnpm run verify`, which does all of it.
 
 ## License
 

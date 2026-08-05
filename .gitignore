@@ -147,3 +147,6 @@ vite.config.ts.timestamp-*
 
 # Per-machine summary model selection, written at runtime with mode 0600
 extensions/summaries/config.private.json
+
+# Extension bundles emitted by `pnpm run build`; this is what pi loads
+extensions/*/dist/
