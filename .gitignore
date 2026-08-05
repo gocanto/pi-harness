@@ -141,3 +141,9 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Search binaries downloaded at runtime by the file-search extension
+/bin/
+
+# Per-machine summary model selection, written at runtime with mode 0600
+extensions/summaries/config.private.json

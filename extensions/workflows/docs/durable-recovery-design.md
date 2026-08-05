@@ -8,7 +8,7 @@
 
 ## 1. Why this matters, and why it is hard
 
-`extensions/workflows` persists enough state to *inspect* a run after the fact
+`extensions/workflows` persists enough state to _inspect_ a run after the fact
 (`extensions/workflows/artifacts.ts`, `extensions/workflows/model.ts`), but the tool
 description is explicit that there is no resume:
 
@@ -32,13 +32,13 @@ the plan's drift check).
 `writeFileAtomic` (owner-only `0600`/`0700` modes, atomic rename —
 `extensions/workflows/serialization.ts:5-7,172-196`):
 
-| File | Written by | Contents | Update cadence |
-|---|---|---|---|
-| `script.js` | `index.ts:419` | the exact model-authored script | once, at launch |
-| `args.json` | `index.ts:420-421` | raw `args` tool parameter | once, at launch |
-| `workflow.json` | `artifacts.ts:persistWorkflowJson` | compact `WorkflowDetails` (no inline transcripts; `result` replaced with a pointer once `result.json` exists) | coalesced every `WORKFLOW_CHECKPOINT_INTERVAL_MS` (500ms, `artifacts.ts:11`), plus an **immediate** flush when each agent starts (`index.ts:505`), plus a synchronous final flush (`index.ts:667-675`) |
-| `transcripts.json` | `artifacts.ts:persistWorkflowJson` | per-agent transcript, bounded to 32KB/agent with an 8KB/entry cap (`boundedArtifactTranscript`, `artifacts.ts:9-10,31-84`) | same cadence as `workflow.json` (single combined `persist()` call) |
-| `result.json` | `artifacts.ts:persistWorkflowJson` | the script's `return` value, capped at 1MB | written once the field is set (checkpoint or final flush) |
+| File               | Written by                         | Contents                                                                                                                   | Update cadence                                                                                                                                                                                         |
+| ------------------ | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `script.js`        | `index.ts:419`                     | the exact model-authored script                                                                                            | once, at launch                                                                                                                                                                                        |
+| `args.json`        | `index.ts:420-421`                 | raw `args` tool parameter                                                                                                  | once, at launch                                                                                                                                                                                        |
+| `workflow.json`    | `artifacts.ts:persistWorkflowJson` | compact `WorkflowDetails` (no inline transcripts; `result` replaced with a pointer once `result.json` exists)              | coalesced every `WORKFLOW_CHECKPOINT_INTERVAL_MS` (500ms, `artifacts.ts:11`), plus an **immediate** flush when each agent starts (`index.ts:505`), plus a synchronous final flush (`index.ts:667-675`) |
+| `transcripts.json` | `artifacts.ts:persistWorkflowJson` | per-agent transcript, bounded to 32KB/agent with an 8KB/entry cap (`boundedArtifactTranscript`, `artifacts.ts:9-10,31-84`) | same cadence as `workflow.json` (single combined `persist()` call)                                                                                                                                     |
+| `result.json`      | `artifacts.ts:persistWorkflowJson` | the script's `return` value, capped at 1MB                                                                                 | written once the field is set (checkpoint or final flush)                                                                                                                                              |
 
 `WorkflowDetails` (`model.ts:80-97`) is the authoritative persisted shape:
 `runId`, `sessionId`, `name`, `description`, `background`, `status`
@@ -48,9 +48,9 @@ the plan's drift check).
 (`"running"|"done"|"error"`), `model?`, `startedAt`, `finishedAt?`, `error?`, `preview`,
 `usage`, `transcript`.
 
-**What is *not* persisted today, and matters for recovery:** there is no `pid`, no
+**What is _not_ persisted today, and matters for recovery:** there is no `pid`, no
 hostname, no heartbeat timestamp, and no lease/expiry field anywhere in
-`WorkflowDetails`. The only ownership signal on disk is `sessionId` — the pi *session*
+`WorkflowDetails`. The only ownership signal on disk is `sessionId` — the pi _session_
 that launched the run, not a process or a point in time.
 
 ### 2.2 What "active" means today, and its blast radius
@@ -63,7 +63,7 @@ no cross-process registry, lock file, or database. Three consequences:
    on disk forever — nothing ever transitions it, because the only code that would
    transition it (`runScript`'s `finally`, `index.ts:665-675`) never runs.
 2. `session_shutdown` (fired on `/new`, `/resume`, `/fork`, `/reload`, and quit) aborts
-   and settles every run this *process* still has in `activeRuns`, bounded to 8s
+   and settles every run this _process_ still has in `activeRuns`, bounded to 8s
    (`RUN_SHUTDOWN_TIMEOUT_MS`, `controller.ts:3`, wired at `index.ts:304-326`). This is
    a clean, deterministic shutdown path — the gap is only the crash case above, where
    `session_shutdown` never fires at all.
@@ -76,7 +76,7 @@ no cross-process registry, lock file, or database. Three consequences:
 
 `index.ts`'s `listRuns()` (`index.ts:175-228`) already does a narrow, **read-only**
 form of orphan inference for display purposes: any `workflow.json` still marked
-`"running"` that isn't in the current process's `activeRuns` is *shown* as `"aborted"`
+`"running"` that isn't in the current process's `activeRuns` is _shown_ as `"aborted"`
 in `/workflows` — but only when `parsed.sessionId === sessionId` (the viewing session
 resumed the same session file) or the run id is explicitly referenced elsewhere in the
 transcript (`sessionWorkflowRunIds`, `dashboard.ts:227` and `index.ts:207`). This
@@ -115,7 +115,7 @@ retry/idempotency problem (§4), not a resume problem.
   (`runner.ts:48`); after the first assistant event, an individual `agent()` call has no
   further deadline of its own, but it is still inside the 30-minute run deadline above.
   (`prompt.ts:28`'s model-facing text — "has no overall deadline" — describes this
-  per-call absence of an *additional* timeout, not the run-level 30-minute bound; both
+  per-call absence of an _additional_ timeout, not the run-level 30-minute bound; both
   facts are true simultaneously and any recovery design must keep both.)
 - Run-settle bound on abort: `RUN_SHUTDOWN_TIMEOUT_MS = 8_000` (`controller.ts:3`).
 - Global fan-out concurrency cap: 4 (`DEFAULT_CONCURRENCY`, `controller.ts:1`).
@@ -171,15 +171,15 @@ everything else is the current type unchanged):
 
 ```ts
 type WorkflowStatus =
-  | "running"     // existing: an owner holds the lease and is actively advancing the run
-  | "completed"   // existing: terminal, script returned
-  | "failed"      // existing: terminal, script threw or settle deadline exceeded
-  | "aborted"     // existing: terminal, controller.abort() was called
-  | "orphaned"    // NEW, derived only, never itself checkpointed: workflow.json says
-                   //     "running" but the lease has expired and no owner is renewing it
-  | "recovering"; // NEW: a process has claimed an orphaned run for the bounded,
-                   //     read-only recovery prototype in §6 (metadata-only; this state
-                   //     never authorizes re-entering the sandbox)
+	| 'running' // existing: an owner holds the lease and is actively advancing the run
+	| 'completed' // existing: terminal, script returned
+	| 'failed' // existing: terminal, script threw or settle deadline exceeded
+	| 'aborted' // existing: terminal, controller.abort() was called
+	| 'orphaned' // NEW, derived only, never itself checkpointed: workflow.json says
+	//     "running" but the lease has expired and no owner is renewing it
+	| 'recovering'; // NEW: a process has claimed an orphaned run for the bounded,
+//     read-only recovery prototype in §6 (metadata-only; this state
+//     never authorizes re-entering the sandbox)
 ```
 
 `"orphaned"` is deliberately **derived, not written to `workflow.json`** by the process
@@ -193,18 +193,20 @@ path that could race with a still-alive owner whose heartbeat is merely late.
 
 ```ts
 type AgentState =
-  | "running" | "done" | "error" // existing
-  | "unknown";                    // NEW, derived only: the owning run's lease expired
-                                    //   while this agent record was "running" — its true
-                                    //   outcome (did the side effect happen or not?) is
-                                    //   unknowable from the checkpoint alone (§2.3).
+	| 'running'
+	| 'done'
+	| 'error' // existing
+	| 'unknown'; // NEW, derived only: the owning run's lease expired
+//   while this agent record was "running" — its true
+//   outcome (did the side effect happen or not?) is
+//   unknowable from the checkpoint alone (§2.3).
 ```
 
-`index.ts:658-664` already has a version of this problem for the *same-process* case
+`index.ts:658-664` already has a version of this problem for the _same-process_ case
 (a run settles with an agent still `"running"` because it didn't finish before the
 shutdown deadline) and resolves it by marking that agent `"error"` with
 `"Agent did not settle before run cleanup"`. `"unknown"` is a distinct, more honest
-label for the *cross-process* case: `"error"` asserts the side effect did not
+label for the _cross-process_ case: `"error"` asserts the side effect did not
 succeed, which the owning process can assert because it controls the abort; a
 different, later process cannot make that claim about a checkpoint it did not write.
 
@@ -213,15 +215,15 @@ different, later process cannot make that claim about a checkpoint it did not wr
 ```ts
 /** Process-identity claim over a run's checkpoint, renewed by heartbeat. Proposed; not implemented. */
 interface RunLease {
-  readonly sessionId: string;   // already exists as WorkflowDetails.sessionId
-  readonly hostId: string;      // NEW: stable per-install identifier, not raw hostname (§5.3)
-  readonly pid: number;         // NEW: OS process id, for local diagnostics only — never trusted alone (PIDs recycle)
-  readonly ownerToken: string;  // NEW: random value minted at lease acquisition, distinguishes
-                                 //   two processes that briefly share a pid after a fast restart
-  readonly acquiredAt: number;  // NEW
-  readonly heartbeatAt: number; // NEW: last renewal; recomputed every checkpoint tick
-  readonly leaseMs: number;     // NEW: expiry window (proposed default: 3x the checkpoint
-                                 //   interval headroom below, not the checkpoint interval itself)
+	readonly sessionId: string; // already exists as WorkflowDetails.sessionId
+	readonly hostId: string; // NEW: stable per-install identifier, not raw hostname (§5.3)
+	readonly pid: number; // NEW: OS process id, for local diagnostics only — never trusted alone (PIDs recycle)
+	readonly ownerToken: string; // NEW: random value minted at lease acquisition, distinguishes
+	//   two processes that briefly share a pid after a fast restart
+	readonly acquiredAt: number; // NEW
+	readonly heartbeatAt: number; // NEW: last renewal; recomputed every checkpoint tick
+	readonly leaseMs: number; // NEW: expiry window (proposed default: 3x the checkpoint
+	//   interval headroom below, not the checkpoint interval itself)
 }
 ```
 
@@ -243,17 +245,17 @@ inference `listRuns()` already does today, never lease-claimable.
 
 ### 4.4 State transition table
 
-| From | Event | To | Who may write it | Notes |
-|---|---|---|---|---|
-| *(none)* | `workflow` tool invoked | `running` | launching process (owner) | unchanged; owner also mints the initial lease |
-| `running` | script returns | `completed` | owner | unchanged (`index.ts:633`) |
-| `running` | script throws / controller aborts | `failed` \| `aborted` | owner | unchanged (`index.ts:643-656`) |
-| `running` | owner's `session_shutdown` fires | `aborted` (bounded 8s) or `failed` (settle deadline exceeded) | owner | unchanged (`index.ts:304-326`, `controller.ts:161-183`) |
-| `running` (on disk) | a *different* process observes `heartbeatAt` older than `leaseMs` | `orphaned` (derived, in-memory only, for display/decision) | any reader | never mutates `workflow.json`; matches today's `listRuns()` inference generalized across processes |
-| `orphaned` | the original owner's process is actually still alive and checkpoints again | back to `running` (the "orphaned" label simply stops applying) | owner | race is resolved by the lease, not by a lock — see §4.5 |
-| `orphaned` | a recovery process claims it under the §6 prototype | `recovering` (in-memory only in the claiming process; still bounded, read-only) | claimant, using `ownerToken` compare-and-swap semantics (§4.5) | never re-enters the sandbox; never resumes agent calls |
-| `recovering` | prototype finishes reading metadata | *(prototype has no write-back state — see §6)* | — | out of scope beyond metadata read |
-| any terminal state | retention sweep, age > 14 days, not in `activeRuns` | *(directory deleted)* | any process on `session_start` | unchanged (`retention.ts`) — §4.6 covers whether `orphaned` should get its own, shorter window |
+| From                | Event                                                                      | To                                                                              | Who may write it                                               | Notes                                                                                              |
+| ------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| _(none)_            | `workflow` tool invoked                                                    | `running`                                                                       | launching process (owner)                                      | unchanged; owner also mints the initial lease                                                      |
+| `running`           | script returns                                                             | `completed`                                                                     | owner                                                          | unchanged (`index.ts:633`)                                                                         |
+| `running`           | script throws / controller aborts                                          | `failed` \| `aborted`                                                           | owner                                                          | unchanged (`index.ts:643-656`)                                                                     |
+| `running`           | owner's `session_shutdown` fires                                           | `aborted` (bounded 8s) or `failed` (settle deadline exceeded)                   | owner                                                          | unchanged (`index.ts:304-326`, `controller.ts:161-183`)                                            |
+| `running` (on disk) | a _different_ process observes `heartbeatAt` older than `leaseMs`          | `orphaned` (derived, in-memory only, for display/decision)                      | any reader                                                     | never mutates `workflow.json`; matches today's `listRuns()` inference generalized across processes |
+| `orphaned`          | the original owner's process is actually still alive and checkpoints again | back to `running` (the "orphaned" label simply stops applying)                  | owner                                                          | race is resolved by the lease, not by a lock — see §4.5                                            |
+| `orphaned`          | a recovery process claims it under the §6 prototype                        | `recovering` (in-memory only in the claiming process; still bounded, read-only) | claimant, using `ownerToken` compare-and-swap semantics (§4.5) | never re-enters the sandbox; never resumes agent calls                                             |
+| `recovering`        | prototype finishes reading metadata                                        | _(prototype has no write-back state — see §6)_                                  | —                                                              | out of scope beyond metadata read                                                                  |
+| any terminal state  | retention sweep, age > 14 days, not in `activeRuns`                        | _(directory deleted)_                                                           | any process on `session_start`                                 | unchanged (`retention.ts`) — §4.6 covers whether `orphaned` should get its own, shorter window     |
 
 ### 4.5 Duplicate-resume and stale-owner races
 
@@ -277,7 +279,7 @@ the point of action" (see `sealed` in `RunController.schedule`, `controller.ts:1
    single-host filesystem, not a substitute for a real lock if this ever needs to work
    over a shared/networked artifact store (explicitly out of scope, see §6.4).
 3. **A genuinely-alive "orphaned" owner wins ties.** Because renewal only requires
-   matching the *current* `ownerToken` before writing further checkpoints (not
+   matching the _current_ `ownerToken` before writing further checkpoints (not
    contending for anything else), an owner that was merely slow (not crashed) simply
    fails its next renewal if a recovery process has already claimed the lease, and
    must treat that as equivalent to an external abort — surface it to the user as
@@ -293,7 +295,7 @@ the point of action" (see `sealed` in `RunController.schedule`, `controller.ts:1
   only ever needs to flip persisted `status` to `"aborted"` and does not require the
   original process to be alive (there is nothing left to abort at the process level —
   it's already gone). This is a pure metadata write, safe under the same CAS rule as
-  §4.5, and is a reasonable candidate for the §6 prototype's write surface *if*
+  §4.5, and is a reasonable candidate for the §6 prototype's write surface _if_
   maintainers want write access at all (see the prototype's explicit non-goals — the
   spike's default recommendation is to ship read-only first and revisit this in a
   follow-up plan).
@@ -318,9 +320,9 @@ single already-attempted agent step automatically:
 1. **Idempotency key per agent call.** The script has no natural key today (`label` is
    free-form, model-authored, and not guaranteed unique or stable across script
    re-evaluation, since `agentFn` derives `label` from call order —
-   `const label = ... ?? \`agent-${index}\`` at `index.ts:484-487`). A durable design
-   would need the orchestration DSL itself to expose a caller-supplied idempotency key
-   (e.g. a required `id` string per `agent()` call, hashed together with `runId`), not
+   `const label = ... ?? \`agent-${index}\``at`index.ts:484-487`). A durable design
+would need the orchestration DSL itself to expose a caller-supplied idempotency key
+(e.g. a required `id`string per`agent()`call, hashed together with`runId`), not
    an inferred one — inferring from call order breaks the moment a recovered script
    takes a different branch (§5.2).
 2. **Side-effect classification the tool author cannot get wrong.** `agent()` invokes a
@@ -330,7 +332,7 @@ single already-attempted agent step automatically:
    orchestrator's point of view (`ScriptAgentResult` has no side-effect metadata,
    `index.ts:98-103`). Without a way to know "did this agent call only read things," a
    recovery engine cannot decide re-running is safe by inspecting the record; that
-   decision would have to come from the *tools the child used*, which is a much bigger
+   decision would have to come from the _tools the child used_, which is a much bigger
    surface (see `dependencies/002` and similar prior plans on tool trust) than this
    spike can settle.
 3. **Deterministic replay of the orchestration script is not guaranteed.** The
@@ -357,7 +359,7 @@ guarantees unavailable in the current code") — recorded here, not worked aroun
   project can be untrusted after the checkpoint was written) and a stale "trusted"
   bit is a privilege-escalation bug waiting to happen. Any recovery/resume design must
   re-derive trust at claim time, not persist and replay it.
-- `cwd` is likewise re-derived from the *claiming* session's live `ctx.cwd`, never
+- `cwd` is likewise re-derived from the _claiming_ session's live `ctx.cwd`, never
   taken verbatim from a checkpoint — see §5.3's unauthorized-cwd threat.
 - Model/provider credentials are resolved through the running process's
   `ctx.modelRegistry` (`index.ts:529-563`); there is nothing to "reauthorize" for a
@@ -365,13 +367,13 @@ guarantees unavailable in the current code") — recorded here, not worked aroun
 
 ### 5.3 Threat model
 
-| Threat | Scenario | Mitigation (proposed / existing) |
-|---|---|---|
-| **Duplicate execution** | Two processes both believe they own `runId` after a crash-and-restart race (laptop sleep/wake, two pi instances pointed at the same `~/.pi/agent` dir) and both re-run `agent()` calls with real side effects. | §4.5's lease CAS closes the "who may write the next checkpoint" race. Combined with §5.1's conclusion that automatic re-run isn't safe yet, the practical mitigation for *this spike's scope* is: don't build auto re-run at all; the prototype (§6) is read-only, so it structurally cannot duplicate a side effect. |
-| **Stale owner** | A process is suspended (not crashed) — e.g. a laptop sleeps mid-run — and wakes up believing it still owns the run after a recovery process has already claimed it. | §4.5 point 3: the stale owner's next checkpoint write fails the `ownerToken` re-read check; it must treat that as an external abort and stop, never "fight" for the lease. This needs an explicit code path (checked at every `persistence.checkpoint()` call site) that doesn't exist today — noted as a build item for any real resume implementation, not solved by this doc alone. |
-| **Unauthorized cwd** | A recovered/resumed run re-derives `cwd` from a stale checkpoint value instead of the claiming session's live, trust-checked `ctx.cwd`, letting a script continue operating against a directory the current session was never granted access to (e.g. the checkpoint's `cwd` points at a path the recovering user/session shouldn't touch). | §5.2: `cwd` and trust must always come from the claiming session's live context, never from the checkpoint. The prototype (§6) doesn't execute anything, so it has no `cwd` to authorize in the first place — this only becomes a live risk once a future plan adds actual resume, and that plan must re-verify trust/cwd exactly like a fresh `workflow` tool call does today (`index.ts:431`). |
-| **Leaked artifacts** | A lease/heartbeat field, or a future recovery UI, exposes another session's run metadata (script, args, transcript excerpts, results) to a process/user that shouldn't see it — e.g. a multi-user host where `~/.pi/agent` is shared, or a recovery scan that lists runs across sessions without the existing `sessionId`/`referencedRunIds` filter (`index.ts:207`, `dashboard.ts:310`). | Files are already owner-only at the OS level (`0600`/`0700`, `serialization.ts:5-7`) — that boundary is per-OS-user, not per-session, and this design does not change it. Any recovery listing must reuse the existing `sessionId`/`referencedRunIds` visibility filter (§2.2) rather than inventing a broader "list all runs on disk" surface; the §6 prototype explicitly keeps this filter (see its non-goals). New lease fields (`hostId`, `pid`, `ownerToken`) are process/host diagnostics, not secrets, but should still not be surfaced to the model/tool layer beyond what `/workflows` already exposes today, to avoid growing the model-visible surface incidentally. |
-| **Background-terminal drift** | A future change makes workflows resumable while leaving background-terminals kill-only (or vice versa), producing an inconsistent mental model ("why does one interrupted tool survive a reload and the other doesn't?") and, worse, an implementer "fixing" background-terminals to match by adding process reattachment, which is a much larger and riskier change than anything in this doc. | Not a data-security threat, but a design-integrity one: §2.5 records the current parity explicitly so a future PR reviewer has something concrete to check against. This spike's own recommendation (§6) preserves parity by staying read-only. |
+| Threat                        | Scenario                                                                                                                                                                                                                                                                                                                                                                                        | Mitigation (proposed / existing)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Duplicate execution**       | Two processes both believe they own `runId` after a crash-and-restart race (laptop sleep/wake, two pi instances pointed at the same `~/.pi/agent` dir) and both re-run `agent()` calls with real side effects.                                                                                                                                                                                  | §4.5's lease CAS closes the "who may write the next checkpoint" race. Combined with §5.1's conclusion that automatic re-run isn't safe yet, the practical mitigation for _this spike's scope_ is: don't build auto re-run at all; the prototype (§6) is read-only, so it structurally cannot duplicate a side effect.                                                                                                                                                                                                                                                                                                                                                            |
+| **Stale owner**               | A process is suspended (not crashed) — e.g. a laptop sleeps mid-run — and wakes up believing it still owns the run after a recovery process has already claimed it.                                                                                                                                                                                                                             | §4.5 point 3: the stale owner's next checkpoint write fails the `ownerToken` re-read check; it must treat that as an external abort and stop, never "fight" for the lease. This needs an explicit code path (checked at every `persistence.checkpoint()` call site) that doesn't exist today — noted as a build item for any real resume implementation, not solved by this doc alone.                                                                                                                                                                                                                                                                                           |
+| **Unauthorized cwd**          | A recovered/resumed run re-derives `cwd` from a stale checkpoint value instead of the claiming session's live, trust-checked `ctx.cwd`, letting a script continue operating against a directory the current session was never granted access to (e.g. the checkpoint's `cwd` points at a path the recovering user/session shouldn't touch).                                                     | §5.2: `cwd` and trust must always come from the claiming session's live context, never from the checkpoint. The prototype (§6) doesn't execute anything, so it has no `cwd` to authorize in the first place — this only becomes a live risk once a future plan adds actual resume, and that plan must re-verify trust/cwd exactly like a fresh `workflow` tool call does today (`index.ts:431`).                                                                                                                                                                                                                                                                                 |
+| **Leaked artifacts**          | A lease/heartbeat field, or a future recovery UI, exposes another session's run metadata (script, args, transcript excerpts, results) to a process/user that shouldn't see it — e.g. a multi-user host where `~/.pi/agent` is shared, or a recovery scan that lists runs across sessions without the existing `sessionId`/`referencedRunIds` filter (`index.ts:207`, `dashboard.ts:310`).       | Files are already owner-only at the OS level (`0600`/`0700`, `serialization.ts:5-7`) — that boundary is per-OS-user, not per-session, and this design does not change it. Any recovery listing must reuse the existing `sessionId`/`referencedRunIds` visibility filter (§2.2) rather than inventing a broader "list all runs on disk" surface; the §6 prototype explicitly keeps this filter (see its non-goals). New lease fields (`hostId`, `pid`, `ownerToken`) are process/host diagnostics, not secrets, but should still not be surfaced to the model/tool layer beyond what `/workflows` already exposes today, to avoid growing the model-visible surface incidentally. |
+| **Background-terminal drift** | A future change makes workflows resumable while leaving background-terminals kill-only (or vice versa), producing an inconsistent mental model ("why does one interrupted tool survive a reload and the other doesn't?") and, worse, an implementer "fixing" background-terminals to match by adding process reattachment, which is a much larger and riskier change than anything in this doc. | Not a data-security threat, but a design-integrity one: §2.5 records the current parity explicitly so a future PR reviewer has something concrete to check against. This spike's own recommendation (§6) preserves parity by staying read-only.                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 
 ---
 
@@ -397,30 +399,30 @@ Given a `runId` (or "all runs visible to this session," reusing the existing
   `/workflows`; the prototype's only addition is exposing the derived `orphaned`/
   `unknown` labels described in §4.1–4.2 alongside it.
 - the lease block (`hostId`, `pid` (diagnostic only), `acquiredAt`, `heartbeatAt`, age)
-  when present, so a human can see *why* something is being called orphaned.
+  when present, so a human can see _why_ something is being called orphaned.
 
 ### 6.2 API surface (proposed; documentation only)
 
 ```ts
 /** Read-only recovery metadata for one run. Never mutates workflow.json. Proposed; unimplemented. */
 interface RunRecoverySnapshot {
-  readonly runId: string;
-  readonly status: WorkflowStatus;         // includes the derived "orphaned" value (§4.1)
-  readonly lease?: RunLease;                // absent for legacy (pre-lease) runs
-  readonly agents: ReadonlyArray<{
-    readonly index: number;
-    readonly label: string;
-    readonly state: AgentState;             // includes the derived "unknown" value (§4.2)
-  }>;
-  readonly resumable: false;                // always false — see non-goals
+	readonly runId: string;
+	readonly status: WorkflowStatus; // includes the derived "orphaned" value (§4.1)
+	readonly lease?: RunLease; // absent for legacy (pre-lease) runs
+	readonly agents: ReadonlyArray<{
+		readonly index: number;
+		readonly label: string;
+		readonly state: AgentState; // includes the derived "unknown" value (§4.2)
+	}>;
+	readonly resumable: false; // always false — see non-goals
 }
 
 /** Static-only read path; no side effects, no lease acquisition. Proposed; unimplemented. */
 class WorkflowRecoveryInspector {
-  /** Inspect one run's on-disk checkpoint without claiming its lease. */
-  inspect(runId: string): RunRecoverySnapshot | undefined;
-  /** List every run visible to the given session, reusing the existing visibility rule. */
-  listOrphaned(sessionId: string, referencedRunIds: ReadonlySet<string>): ReadonlyArray<RunRecoverySnapshot>;
+	/** Inspect one run's on-disk checkpoint without claiming its lease. */
+	inspect(runId: string): RunRecoverySnapshot | undefined;
+	/** List every run visible to the given session, reusing the existing visibility rule. */
+	listOrphaned(sessionId: string, referencedRunIds: ReadonlySet<string>): ReadonlyArray<RunRecoverySnapshot>;
 }
 ```
 
@@ -505,23 +507,23 @@ need, so a reviewer can check completeness before code exists.
 
 ### 8.1 Lease/state-machine scenarios (future `artifacts`/`controller` tests)
 
-| Scenario | Setup | Expected |
-|---|---|---|
-| Crash mid-run | Kill the process after a checkpoint but before `finally` runs | On-disk `status` stays `"running"`; lease `heartbeatAt` stops advancing |
-| Reload/`/reload` in the same session | Owner process's `session_shutdown` fires normally | `status` becomes `"aborted"` within `RUN_SHUTDOWN_TIMEOUT_MS`; lease is not left dangling (owner writes final checkpoint before exit) |
-| Timeout (30-minute deadline) | `sandbox.ts` deadline fires | `status` becomes `"failed"` with the existing deadline error text (`sandbox.ts:182`) — lease fields, once added, must reflect the same terminal write, not linger as `"running"` |
-| Duplicate resume attempt | Two processes race to claim an expired lease | Exactly one wins the CAS (§4.5); the loser observes `ownerToken` mismatch on re-read and does not act |
-| Legacy run, no lease fields | Run created before this design ships | Inspector/`listRuns()` fall back to today's heuristic; no crash, no lease assumed |
-| Orphan inference across sessions | Session B (different `sessionId`, not referencing the run) inspects a run left `"running"` by session A's crash | Read-only `orphaned` label is computed correctly by `WorkflowRecoveryInspector`, but **hidden** from `/workflows` unless B is in `referencedRunIds` — visibility rule from §2.2 still applies to the *inspector*, not just the dashboard |
+| Scenario                             | Setup                                                                                                           | Expected                                                                                                                                                                                                                                 |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Crash mid-run                        | Kill the process after a checkpoint but before `finally` runs                                                   | On-disk `status` stays `"running"`; lease `heartbeatAt` stops advancing                                                                                                                                                                  |
+| Reload/`/reload` in the same session | Owner process's `session_shutdown` fires normally                                                               | `status` becomes `"aborted"` within `RUN_SHUTDOWN_TIMEOUT_MS`; lease is not left dangling (owner writes final checkpoint before exit)                                                                                                    |
+| Timeout (30-minute deadline)         | `sandbox.ts` deadline fires                                                                                     | `status` becomes `"failed"` with the existing deadline error text (`sandbox.ts:182`) — lease fields, once added, must reflect the same terminal write, not linger as `"running"`                                                         |
+| Duplicate resume attempt             | Two processes race to claim an expired lease                                                                    | Exactly one wins the CAS (§4.5); the loser observes `ownerToken` mismatch on re-read and does not act                                                                                                                                    |
+| Legacy run, no lease fields          | Run created before this design ships                                                                            | Inspector/`listRuns()` fall back to today's heuristic; no crash, no lease assumed                                                                                                                                                        |
+| Orphan inference across sessions     | Session B (different `sessionId`, not referencing the run) inspects a run left `"running"` by session A's crash | Read-only `orphaned` label is computed correctly by `WorkflowRecoveryInspector`, but **hidden** from `/workflows` unless B is in `referencedRunIds` — visibility rule from §2.2 still applies to the _inspector_, not just the dashboard |
 
 ### 8.2 Threat-model regression scenarios (future security tests)
 
-| Scenario | Expected |
-|---|---|
-| Recovery inspector never writes `workflow.json` | Assert `fs.writeFileSync`/`writeFileAtomic` is never called by `inspect`/`listOrphaned` (a real seam test, not a spy — e.g. assert the file's mtime is unchanged after inspection) |
-| Stale owner after wake-from-sleep loses a contested lease | Owner's next `persistence.checkpoint()` call after losing the CAS surfaces an explicit "claimed by another process" state rather than silently continuing |
-| Trust/cwd never read from a checkpoint | A future resume path's cwd/trust must trace back to the claiming session's live `ctx`, not the persisted `WorkflowDetails` — regression-testable once resume exists by asserting the resumed run's resource loader was constructed from the *current* `ctx.cwd`/`ctx.isProjectTrusted()` call, not a deserialized value |
-| Artifact visibility filter reused, not reimplemented | `listOrphaned` and `listRuns` produce identical visible-run-id sets for the same `(sessionId, referencedRunIds)` input on a shared fixture directory |
+| Scenario                                                  | Expected                                                                                                                                                                                                                                                                                                                |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Recovery inspector never writes `workflow.json`           | Assert `fs.writeFileSync`/`writeFileAtomic` is never called by `inspect`/`listOrphaned` (a real seam test, not a spy — e.g. assert the file's mtime is unchanged after inspection)                                                                                                                                      |
+| Stale owner after wake-from-sleep loses a contested lease | Owner's next `persistence.checkpoint()` call after losing the CAS surfaces an explicit "claimed by another process" state rather than silently continuing                                                                                                                                                               |
+| Trust/cwd never read from a checkpoint                    | A future resume path's cwd/trust must trace back to the claiming session's live `ctx`, not the persisted `WorkflowDetails` — regression-testable once resume exists by asserting the resumed run's resource loader was constructed from the _current_ `ctx.cwd`/`ctx.isProjectTrusted()` call, not a deserialized value |
+| Artifact visibility filter reused, not reimplemented      | `listOrphaned` and `listRuns` produce identical visible-run-id sets for the same `(sessionId, referencedRunIds)` input on a shared fixture directory                                                                                                                                                                    |
 
 ---
 

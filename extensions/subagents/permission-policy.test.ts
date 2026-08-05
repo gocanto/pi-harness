@@ -7,40 +7,42 @@
  * deterministic and safe to run in CI.
  */
 
-import assert from "node:assert/strict";
-import test from "node:test";
-import { claudePermissionOptions } from "./src/backends/claude.ts";
-import { codexSandboxOptions } from "./src/backends/codex.ts";
+import { assert } from '@tests/test-assert.ts';
+import { test } from 'vitest';
+import { claudePermissionOptions } from '@subagents/src/backends/claude.ts';
+import { codexSandboxOptions } from '@subagents/src/backends/codex.ts';
 
-test("Claude: a trusted cwd gets bypassPermissions", () => {
-  assert.deepEqual(claudePermissionOptions(true), {
-    permissionMode: "bypassPermissions",
-    allowDangerouslySkipPermissions: true,
-  });
+test('Claude: a trusted cwd gets bypassPermissions', () => {
+	assert.deepEqual(claudePermissionOptions(true), {
+		permissionMode: 'bypassPermissions',
+		allowDangerouslySkipPermissions: true,
+	});
 });
 
-test("Claude: an untrusted cwd never receives bypassPermissions", () => {
-  const options = claudePermissionOptions(false);
-  assert.notEqual(options.permissionMode, "bypassPermissions");
-  assert.equal("allowDangerouslySkipPermissions" in options, false);
-  assert.deepEqual(options, {
-    permissionMode: "dontAsk",
-    settingSources: ["user"],
-  });
+test('Claude: an untrusted cwd never receives bypassPermissions', () => {
+	const options = claudePermissionOptions(false);
+
+	assert.notEqual(options.permissionMode, 'bypassPermissions');
+	assert.equal('allowDangerouslySkipPermissions' in options, false);
+	assert.deepEqual(options, {
+		permissionMode: 'dontAsk',
+		settingSources: ['user'],
+	});
 });
 
-test("Codex: a trusted cwd gets danger-full-access", () => {
-  assert.deepEqual(codexSandboxOptions(true), {
-    approvalPolicy: "never",
-    sandbox: "danger-full-access",
-  });
+test('Codex: a trusted cwd gets danger-full-access', () => {
+	assert.deepEqual(codexSandboxOptions(true), {
+		approvalPolicy: 'never',
+		sandbox: 'danger-full-access',
+	});
 });
 
-test("Codex: an untrusted cwd never receives danger-full-access", () => {
-  const options = codexSandboxOptions(false);
-  assert.notEqual(options.sandbox, "danger-full-access");
-  assert.deepEqual(options, {
-    approvalPolicy: "never",
-    sandbox: "workspace-write",
-  });
+test('Codex: an untrusted cwd never receives danger-full-access', () => {
+	const options = codexSandboxOptions(false);
+
+	assert.notEqual(options.sandbox, 'danger-full-access');
+	assert.deepEqual(options, {
+		approvalPolicy: 'never',
+		sandbox: 'workspace-write',
+	});
 });

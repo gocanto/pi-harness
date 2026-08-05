@@ -4,13 +4,9 @@
   "type": "module",
   "scripts": {
     "check": "tsc --noEmit -p .",
-    "test": "node --test --experimental-strip-types *.test.ts"
-  },
-  "dependencies": {
-    "effect": "^4.0.0-beta.99"
+    "test": "vitest run --config ../../vitest.config.ts ../../extensions/summaries/*.test.ts"
   },
   "devDependencies": {
-    "@effect/tsgo": "^0.24.2",
     "typescript": "^7.0.2"
   }
 }

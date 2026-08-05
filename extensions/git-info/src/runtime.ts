@@ -1,29 +1,16 @@
-import { NodeServices } from "@effect/platform-node";
-import { Cause, Exit, Layer, ManagedRuntime, type Effect } from "effect";
-import type { CommandRunner } from "./process.ts";
-import { CommandRunnerLive } from "./process.ts";
-
-const AppLayer = CommandRunnerLive.pipe(Layer.provide(NodeServices.layer));
-
-export function createRuntime() {
-  return ManagedRuntime.make(AppLayer);
+function isAbortError(error: unknown) {
+	return error instanceof DOMException && error.name === 'AbortError';
 }
 
-export type GitInfoRuntime = ReturnType<typeof createRuntime>;
+/** Await an operation and translate cancellation into the host-facing message. */
+export async function runWithCancellation<T>(operation: Promise<T>, signal: AbortSignal | undefined, message: string) {
+	try {
+		return await operation;
+	} catch (error) {
+		if (signal?.aborted || isAbortError(error)) {
+			throw new Error(message);
+		}
 
-export async function runEffect<A, E>(
-  runtime: GitInfoRuntime,
-  effect: Effect.Effect<A, E, CommandRunner>,
-  options: { signal?: AbortSignal; interruptMessage?: string } = {},
-) {
-  const exit = await runtime.runPromiseExit(
-    effect,
-    options.signal ? { signal: options.signal } : undefined,
-  );
-  if (Exit.isSuccess(exit)) return exit.value;
-  if (Cause.hasInterruptsOnly(exit.cause)) {
-    throw new Error(options.interruptMessage ?? "Operation was aborted.");
-  }
-  const [first] = Cause.prettyErrors(exit.cause);
-  throw new Error(first?.message ?? Cause.pretty(exit.cause));
+		throw error;
+	}
 }

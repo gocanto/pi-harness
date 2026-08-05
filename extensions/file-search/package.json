@@ -4,8 +4,8 @@
   "type": "module",
   "scripts": {
     "check": "tsc --noEmit -p .",
-    "format": "prettier --write \"**/*.{ts,json}\"",
-    "format:check": "prettier --check \"**/*.{ts,json}\"",
+    "format": "fmtkit format --ts",
+    "format:check": "fmtkit format --ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

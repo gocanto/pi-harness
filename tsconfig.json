@@ -8,7 +8,21 @@
     "strict": true,
     "target": "ES2022",
     "types": ["node"],
-    "verbatimModuleSyntax": true
+    "verbatimModuleSyntax": true,
+    "paths": {
+      "@tests/*": ["./tests/*"],
+      "@shared/*": ["./extensions/shared/*"],
+      "@ask-user/*": ["./extensions/ask-user/*"],
+      "@background-terminals/*": ["./extensions/background-terminals/*"],
+      "@copy-all/*": ["./extensions/copy-all/*"],
+      "@file-search/*": ["./extensions/file-search/*"],
+      "@git-info/*": ["./extensions/git-info/*"],
+      "@model-info/*": ["./extensions/model-info/*"],
+      "@subagents/*": ["./extensions/subagents/*"],
+      "@summaries/*": ["./extensions/summaries/*"],
+      "@ui-customization/*": ["./extensions/ui-customization/*"],
+      "@workflows/*": ["./extensions/workflows/*"]
+    }
   },
-  "include": ["extensions/**/*.ts"]
+  "include": ["extensions/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts", "vitest.config.ts", "vitest.live.config.ts"]
 }

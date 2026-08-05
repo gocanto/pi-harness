@@ -29,7 +29,7 @@ from `../shared/child-session.ts` directly (also imported by `trust.test.ts`), a
 ## 1. V1 inventory (historical planning record)
 
 > Written during the original design phase, before any backend was implemented. Kept
-> for context on *why* the shapes below look the way they do. Where the shipped tool
+> for context on _why_ the shapes below look the way they do. Where the shipped tool
 > surface diverged (parameter names, in particular), the divergence is noted inline;
 > otherwise treat this section as historical rather than authoritative — prefer §6.
 
@@ -44,13 +44,13 @@ Source at the time: `extensions/subagents/` (`index.ts`, `manager.ts`, `prompt.t
 > `harness`). The behavioral description below (caps, truncation, id scheme) still
 > matches `src/manager.ts` and `index.ts`.
 
-| Tool | Parameters | Behavior |
-|---|---|---|
-| `subagent_spawn` | `prompt`, `title`, `working_dir?`, `model?`, `provider?`, `reasoning_effort?` | Fire-and-forget spawn. Returns immediately with an id (`sa-N`). Enforces `MAX_RUNNING = 4` with a synchronous reservation so parallel tool calls can't race past the cap. Validates `working_dir`, resolves model against the registry (inherit parent model/thinking level by default), truncates title to 160 chars. |
-| `subagent_wait` | `ids[]` (max 64) | Blocks until all listed subagents settle; respects the tool `AbortSignal`; streams `Waiting for ...` via `onUpdate`. Marks the awaited results "consumed" so they are not also auto-delivered. Output budgets: 48KB total, 16KB per agent, with per-section fallbacks (`[omitted: ...]`). Errors on unknown ids (lists known ids). |
-| `subagent_cancel` | `ids[]` | Aborts running subagents (marks consumed first to avoid duplicate delivery), waits for settlement, reports per-id `Cancelled ...` / `was already <status>`. Partial transcripts remain on disk. |
-| `subagent_check` | `id` | Non-blocking peek: status line, turn count, error text, up to 2KB/20 lines of latest output (includes the live streaming assistant message). Does not consume the result. |
-| `subagent_list` | — | One `describeSubagent()` line per agent: `id [status] "title" (provider/model, ctx%, elapsed, cwd)`. |
+| Tool              | Parameters                                                                    | Behavior                                                                                                                                                                                                                                                                                                                           |
+| ----------------- | ----------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `subagent_spawn`  | `prompt`, `title`, `working_dir?`, `model?`, `provider?`, `reasoning_effort?` | Fire-and-forget spawn. Returns immediately with an id (`sa-N`). Enforces `MAX_RUNNING = 4` with a synchronous reservation so parallel tool calls can't race past the cap. Validates `working_dir`, resolves model against the registry (inherit parent model/thinking level by default), truncates title to 160 chars.             |
+| `subagent_wait`   | `ids[]` (max 64)                                                              | Blocks until all listed subagents settle; respects the tool `AbortSignal`; streams `Waiting for ...` via `onUpdate`. Marks the awaited results "consumed" so they are not also auto-delivered. Output budgets: 48KB total, 16KB per agent, with per-section fallbacks (`[omitted: ...]`). Errors on unknown ids (lists known ids). |
+| `subagent_cancel` | `ids[]`                                                                       | Aborts running subagents (marks consumed first to avoid duplicate delivery), waits for settlement, reports per-id `Cancelled ...` / `was already <status>`. Partial transcripts remain on disk.                                                                                                                                    |
+| `subagent_check`  | `id`                                                                          | Non-blocking peek: status line, turn count, error text, up to 2KB/20 lines of latest output (includes the live streaming assistant message). Does not consume the result.                                                                                                                                                          |
+| `subagent_list`   | —                                                                             | One `describeSubagent()` line per agent: `id [status] "title" (provider/model, ctx%, elapsed, cwd)`.                                                                                                                                                                                                                               |
 
 Prompt metadata (all strings live in `prompt.ts`): `subagent_spawn` has a
 `promptSnippet` and two `promptGuidelines` (delegate self-contained tasks; don't block
@@ -60,8 +60,8 @@ the concurrency cap, and that children can't orchestrate/see the parent conversa
 ### 1.2 State tracking (v1 `SubagentManager`)
 
 - Plain class with `Map<string, Subagent>`; each `Subagent` = `{ id, title, prompt, cwd,
-  session: AgentSession, status: "running" | "done" | "error", createdAt, settledAt?,
-  errorText?, unsubscribeLifecycle }`.
+session: AgentSession, status: "running" | "done" | "error", createdAt, settledAt?,
+errorText?, unsubscribeLifecycle }`.
 - Children are **in-process pi `AgentSession`s** created via the SDK
   (`createAgentSession` + `SessionManager.create(cwd)` → real session files visible in
   `/resume`), with child resources loaded per-cwd (`DefaultResourceLoader`, trust-gated
@@ -93,9 +93,9 @@ the manager, since the manager is backend-agnostic in the shipped design.
   consume a deferred result before flush (that's why it is a buffer, not an immediate
   send).
 - Delivery = `pi.sendMessage({ customType: "subagent-result", content, display: true,
-  details: { id, title, status } }, { deliverAs: "followUp", triggerTurn: true })`.
+details: { id, title, status } }, { deliverAs: "followUp", triggerTurn: true })`.
   Content is built by `buildSubagentResultMessage` (`Subagent sa-N "title"
-  finished/failed.` + optional `Error:` line + output truncated to 24KB/600 lines with a
+finished/failed.` + optional `Error:` line + output truncated to 24KB/600 lines with a
   pointer to the child session file for the full transcript).
 
 Still accurate; see `src/result-delivery.ts` and `index.ts`'s `deliverResult`/
@@ -105,38 +105,38 @@ through a separate `deliverBtwResult` path (§6.6) that was not part of this pla
 ### 1.4 UI (carried over into v2 essentially as-is)
 
 1. **Footer status** (`ctx.ui.setStatus("subagents", ...)`): `subagents: ■ 2 running ·
-   ■ 1 done · ■ 1 failed · /subagents to view` (warning/success/error colored squares;
+■ 1 done · ■ 1 failed · /subagents to view` (warning/success/error colored squares;
    cleared when no subagents). Driven by manager change listener.
 2. **`subagent-result` message renderer**: status icon (`■`/`x`) + bold accent header
    `subagent sa-N · title · finished/failed`; collapsed = first 8 body lines +
    `... (ctrl+o to expand)`; expanded = header + `Markdown` component render of the body.
 3. **`/subagents` command** → `openSubagentPicker` loop (TUI mode only; notifies and
    bails in non-TUI or when there are no subagents):
-   - **SubagentDashboard** — fullscreen overlay (`anchor: "center", width: "100%",
-     maxHeight: "100%"`), bordered list panel titled `agents · settled/total`. Each row:
-     selection marker `❯`, status glyph, title, dim id on the left; model id · context
-     utilization (`%/capacity`) · elapsed · status word on the right. Scroll window
-     centered on the selection with `... N more` markers. 1Hz ticker re-render for
-     elapsed/token columns + manager change subscription. Keys: `tui.select.up/down`
-     **and** `j`/`k` to move, `tui.select.confirm` to take over, `x` to abort the
-     selected running agent, `tui.select.cancel` to close. Hint line shows the
-     *configured* keys via `keybindings.getKeys()`.
-   - **TakeoverView** — fullscreen overlay for one subagent: header line (status glyph,
-     `id · title · status · elapsed · provider/model · ctx%`), fixed-height transcript
-     viewport (error line and scroll indicator consume viewport rows so height never
-     jumps), an `Input` line, and a hint row. Keys: `tui.input.submit` send (steer if
-     streaming, new run if idle), `app.interrupt`/`tui.select.cancel` back to dashboard,
-     `app.clear` abort run, `tui.editor.cursorUp/Down` scroll ±6 lines,
-     `tui.editor.pageUp/Down` page. Renders are throttled to 50ms because streaming can
-     emit per-token events.
-   - **Transcript rendering** (`buildTranscriptLines`): sanitizes ANSI/tabs/control
-     chars; user messages as `> ` accent-prefixed wrapped lines; assistant text wrapped
-     plain; thinking as dim italic `~ ` lines; tool calls as `→ toolname {args}`; tool
-     results as one dim `output:`/red `error:` first line. Includes the **live streaming
-     assistant message**, **live tool executions** (running/done/error marker + first
-     output line preview, tracked from `tool_execution_*` events until the final tool
-     result message lands), and **queued steering/follow-up messages** (`> [queued
-     steer] ...`) so Enter visibly acknowledges input.
+    - **SubagentDashboard** — fullscreen overlay (`anchor: "center", width: "100%",
+maxHeight: "100%"`), bordered list panel titled `agents · settled/total`. Each row:
+      selection marker `❯`, status glyph, title, dim id on the left; model id · context
+      utilization (`%/capacity`) · elapsed · status word on the right. Scroll window
+      centered on the selection with `... N more` markers. 1Hz ticker re-render for
+      elapsed/token columns + manager change subscription. Keys: `tui.select.up/down`
+      **and** `j`/`k` to move, `tui.select.confirm` to take over, `x` to abort the
+      selected running agent, `tui.select.cancel` to close. Hint line shows the
+      _configured_ keys via `keybindings.getKeys()`.
+    - **TakeoverView** — fullscreen overlay for one subagent: header line (status glyph,
+      `id · title · status · elapsed · provider/model · ctx%`), fixed-height transcript
+      viewport (error line and scroll indicator consume viewport rows so height never
+      jumps), an `Input` line, and a hint row. Keys: `tui.input.submit` send (steer if
+      streaming, new run if idle), `app.interrupt`/`tui.select.cancel` back to dashboard,
+      `app.clear` abort run, `tui.editor.cursorUp/Down` scroll ±6 lines,
+      `tui.editor.pageUp/Down` page. Renders are throttled to 50ms because streaming can
+      emit per-token events.
+    - **Transcript rendering** (`buildTranscriptLines`): sanitizes ANSI/tabs/control
+      chars; user messages as `> ` accent-prefixed wrapped lines; assistant text wrapped
+      plain; thinking as dim italic `~ ` lines; tool calls as `→ toolname {args}`; tool
+      results as one dim `output:`/red `error:` first line. Includes the **live streaming
+      assistant message**, **live tool executions** (running/done/error marker + first
+      output line preview, tracked from `tool_execution_*` events until the final tool
+      result message lands), and **queued steering/follow-up messages** (`> [queued
+steer] ...`) so Enter visibly acknowledges input.
 
 Shipped in `src/ui/takeover.ts` (dashboard + takeover view) and `src/ui/transcript.ts`
 (transcript rendering) — see §6.7. `openSubagentTakeover` (the single-agent view) is
@@ -149,11 +149,11 @@ also reused directly by `/btw`, which this plan did not anticipate.
 These shape the interface even though v1-of-v2 stubs the internals. (Traced from the
 "T3 Code" codebase which integrates Codex and Claude Code.)
 
-| | Interactive sessions | One-shot tasks | Event shape | Interrupt | Steering |
-|---|---|---|---|---|---|
-| **pi** | In-process `createAgentSession()` (pi SDK); real session files; `session.subscribe()` | `session.prompt()` and read final assistant message (or `pi -p` subprocess, not needed) | `AgentSessionEvent` (message_start/update/end, tool_execution_*, agent_start/settled, queue_update, ...) | `session.abort()` | `session.steer()` / `followUp()` |
-| **Claude Code** | `@anthropic-ai/claude-agent-sdk` `query()` — SDK launches the `claude` executable and streams JSON messages (assistant/user/result/system, streaming partials, tool_use blocks) | `claude -p --output-format json` | SDK message stream (async iterable) | `query.interrupt()` / abort controller | streaming-input mode: push more user messages into the input iterable |
-| **Codex** | spawn `codex app-server` child process, JSON-RPC over stdin/stdout (`newConversation` / `sendUserTurn`, notifications: `agentMessageDelta`, `execCommandBegin/End`, `taskComplete`, `tokenCount`, ...) | `codex exec` (prints result to stdout, `--json` for events) | JSON-RPC notifications | `interruptConversation` request | send another `sendUserTurn` on the same conversation |
+|                 | Interactive sessions                                                                                                                                                                                   | One-shot tasks                                                                          | Event shape                                                                                              | Interrupt                              | Steering                                                              |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------- | --------------------------------------------------------------------- |
+| **pi**          | In-process `createAgentSession()` (pi SDK); real session files; `session.subscribe()`                                                                                                                  | `session.prompt()` and read final assistant message (or `pi -p` subprocess, not needed) | `AgentSessionEvent` (message_start/update/end, tool_execution_*, agent_start/settled, queue_update, ...) | `session.abort()`                      | `session.steer()` / `followUp()`                                      |
+| **Claude Code** | `@anthropic-ai/claude-agent-sdk` `query()` — SDK launches the `claude` executable and streams JSON messages (assistant/user/result/system, streaming partials, tool_use blocks)                        | `claude -p --output-format json`                                                        | SDK message stream (async iterable)                                                                      | `query.interrupt()` / abort controller | streaming-input mode: push more user messages into the input iterable |
+| **Codex**       | spawn `codex app-server` child process, JSON-RPC over stdin/stdout (`newConversation` / `sendUserTurn`, notifications: `agentMessageDelta`, `execCommandBegin/End`, `taskComplete`, `tokenCount`, ...) | `codex exec` (prints result to stdout, `--json` for events)                             | JSON-RPC notifications                                                                                   | `interruptConversation` request        | send another `sendUserTurn` on the same conversation                  |
 
 Common denominator all three can supply:
 
@@ -204,30 +204,31 @@ useful summary; consult `src/domain.ts` directly for the authoritative shape (it
 `ParentContext.modelRegistry` beyond what is shown here).
 
 ```ts
-type BackendName = "pi" | "claude" | "codex";
-type SubagentStatus = "running" | "done" | "error";
+type BackendName = 'pi' | 'claude' | 'codex';
+
+type SubagentStatus = 'running' | 'done' | 'error';
 
 interface SpawnTask {
-  readonly prompt: string;
-  readonly title: string;
-  readonly cwd: string;
-  readonly model?: string;            // pi: "provider/model-id"; claude: model alias; codex: model slug
-  readonly reasoningEffort?: ReasoningEffort; // shared effort scale; each backend maps it natively
-  readonly parent: {
-    readonly parentCwd: string;
-    readonly projectTrusted: boolean;
-    readonly inheritedModel?: { readonly provider: string; readonly id: string }; // pi only
-    readonly inheritedThinkingLevel?: string;
-    readonly modelRegistry?: ModelRegistry; // required by the pi backend to resolve models
-  };
+	readonly prompt: string;
+	readonly title: string;
+	readonly cwd: string;
+	readonly model?: string; // pi: "provider/model-id"; claude: model alias; codex: model slug
+	readonly reasoningEffort?: ReasoningEffort; // shared effort scale; each backend maps it natively
+	readonly parent: {
+		readonly parentCwd: string;
+		readonly projectTrusted: boolean;
+		readonly inheritedModel?: { readonly provider: string; readonly id: string }; // pi only
+		readonly inheritedThinkingLevel?: string;
+		readonly modelRegistry?: ModelRegistry; // required by the pi backend to resolve models
+	};
 }
 
 interface SubagentMeta {
-  readonly backend: BackendName;
-  readonly modelLabel?: string;         // "anthropic/claude-opus-4-5", "gpt-5-codex", ...
-  readonly contextWindow?: number;      // for utilization %, when known
-  readonly sessionFilePath?: string;    // pi session file / claude JSONL / codex rollout path
-  readonly nativeSessionId?: string;    // claude session id, codex conversation id
+	readonly backend: BackendName;
+	readonly modelLabel?: string; // "anthropic/claude-opus-4-5", "gpt-5-codex", ...
+	readonly contextWindow?: number; // for utilization %, when known
+	readonly sessionFilePath?: string; // pi session file / claude JSONL / codex rollout path
+	readonly nativeSessionId?: string; // claude session id, codex conversation id
 }
 ```
 
@@ -240,23 +241,20 @@ they match the shape below field-for-field.
 
 ```ts
 type SubagentEvent =
-  | { _tag: "RunStarted" }
-  | { _tag: "RunSettled"; outcome: RunOutcome }
-  | { _tag: "UserMessage"; text: string }
-  | { _tag: "AssistantDelta"; kind: "text" | "thinking"; delta: string }
-  | { _tag: "AssistantMessage"; parts: TranscriptPart[] }
-  | { _tag: "ToolStart";  toolId: string; name: string; argsPreview?: string }
-  | { _tag: "ToolUpdate"; toolId: string; outputPreview?: string }
-  | { _tag: "ToolEnd";    toolId: string; name: string; isError: boolean; outputPreview?: string }
-  | { _tag: "QueueChanged"; queued: ReadonlyArray<{ text: string; kind: "steer" | "follow-up" }> }
-  | { _tag: "UsageChanged"; tokens?: number; contextWindow?: number }
-  | { _tag: "MetaChanged";  meta: Partial<SubagentMeta> }
-  | { _tag: "BackendError"; message: string };
+	| { _tag: 'RunStarted' }
+	| { _tag: 'RunSettled'; outcome: RunOutcome }
+	| { _tag: 'UserMessage'; text: string }
+	| { _tag: 'AssistantDelta'; kind: 'text' | 'thinking'; delta: string }
+	| { _tag: 'AssistantMessage'; parts: TranscriptPart[] }
+	| { _tag: 'ToolStart'; toolId: string; name: string; argsPreview?: string }
+	| { _tag: 'ToolUpdate'; toolId: string; outputPreview?: string }
+	| { _tag: 'ToolEnd'; toolId: string; name: string; isError: boolean; outputPreview?: string }
+	| { _tag: 'QueueChanged'; queued: ReadonlyArray<{ text: string; kind: 'steer' | 'follow-up' }> }
+	| { _tag: 'UsageChanged'; tokens?: number; contextWindow?: number }
+	| { _tag: 'MetaChanged'; meta: Partial<SubagentMeta> }
+	| { _tag: 'BackendError'; message: string };
 
-type RunOutcome =
-  | { _tag: "Completed"; finalText: string }
-  | { _tag: "Failed"; errorText: string; partialText?: string }
-  | { _tag: "Interrupted"; partialText?: string };
+type RunOutcome = { _tag: 'Completed'; finalText: string } | { _tag: 'Failed'; errorText: string; partialText?: string } | { _tag: 'Interrupted'; partialText?: string };
 ```
 
 ---
@@ -268,17 +266,17 @@ keyed by `BackendName` (`src/runtime.ts`'s `BackendRegistryLive`).
 
 ```ts
 interface SubagentBackend {
-  readonly name: BackendName;
-  readonly capabilities: { steering: boolean; modelSelection: boolean; reasoningEffort: boolean };
-  readonly available: Effect.Effect<boolean>; // probe binary/SDK/credentials, cheap
-  spawn(task: SpawnTask): Effect.Effect<SubagentSession, SpawnError, Scope.Scope>;
+	readonly name: BackendName;
+	readonly capabilities: { steering: boolean; modelSelection: boolean; reasoningEffort: boolean };
+	readonly available: Effect.Effect<boolean>; // probe binary/SDK/credentials, cheap
+	spawn(task: SpawnTask): Effect.Effect<SubagentSession, SpawnError, Scope.Scope>;
 }
 
 interface SubagentSession {
-  readonly meta: Effect.Effect<SubagentMeta>;
-  readonly events: Stream.Stream<SubagentEvent>;
-  send(text: string): Effect.Effect<void, SendError>;
-  readonly interrupt: Effect.Effect<void>;
+	readonly meta: Effect.Effect<SubagentMeta>;
+	readonly events: Stream.Stream<SubagentEvent>;
+	send(text: string): Effect.Effect<void, SendError>;
+	readonly interrupt: Effect.Effect<void>;
 }
 ```
 
@@ -297,13 +295,13 @@ Design choices that carried through as-built:
 
 ### 6.1 Tool surface (`index.ts`, `src/prompt.ts`)
 
-| Tool | Parameters | Notes |
-|---|---|---|
-| `subagent_spawn` | `prompt`, `name`, `harness` (`"pi" \| "claude" \| "codex"`, required), `working_dir?`, `model?`, `reasoning_effort?` (`REASONING_EFFORTS` enum) | `name` is truncated to 160 chars for the title. `working_dir` resolves against `ctx.cwd` and is validated (`fs.existsSync` + `isDirectory()`), then checked against `resolveStandaloneChildProjectTrust` **before** the manager reserves a concurrency slot — an untrusted cwd is rejected outright, never reaching a backend. |
-| `subagent_wait` | `ids[]` (max 64) | Same budgets as the historical record (§1.1): 48KB total / 16KB per agent, consumes deferred results for the waited ids. |
-| `subagent_cancel` | `ids[]` | Unchanged from §1.1. |
-| `subagent_check` | `id` | Filters out `origin: "btw"` subagents via `isModelVisible` (§6.6) — the model cannot see or touch `/btw` asides through these tools. |
-| `subagent_list` | — | Same filter as above. |
+| Tool              | Parameters                                                                                                                                      | Notes                                                                                                                                                                                                                                                                                                                          |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `subagent_spawn`  | `prompt`, `name`, `harness` (`"pi" \| "claude" \| "codex"`, required), `working_dir?`, `model?`, `reasoning_effort?` (`REASONING_EFFORTS` enum) | `name` is truncated to 160 chars for the title. `working_dir` resolves against `ctx.cwd` and is validated (`fs.existsSync` + `isDirectory()`), then checked against `resolveStandaloneChildProjectTrust` **before** the manager reserves a concurrency slot — an untrusted cwd is rejected outright, never reaching a backend. |
+| `subagent_wait`   | `ids[]` (max 64)                                                                                                                                | Same budgets as the historical record (§1.1): 48KB total / 16KB per agent, consumes deferred results for the waited ids.                                                                                                                                                                                                       |
+| `subagent_cancel` | `ids[]`                                                                                                                                         | Unchanged from §1.1.                                                                                                                                                                                                                                                                                                           |
+| `subagent_check`  | `id`                                                                                                                                            | Filters out `origin: "btw"` subagents via `isModelVisible` (§6.6) — the model cannot see or touch `/btw` asides through these tools.                                                                                                                                                                                           |
+| `subagent_list`   | —                                                                                                                                               | Same filter as above.                                                                                                                                                                                                                                                                                                          |
 
 There is no `provider`/`agent` split parameter as sketched in §1.1 — the shipped schema
 uses `harness` for the backend selector and folds "provider" into the free-form `model`
@@ -332,11 +330,11 @@ Confirmed in `extensions/shared/child-session.ts`,
 
 ### 6.3 Backend capability matrix (`src/backends/*.ts`)
 
-| Backend | `steering` | `modelSelection` | `reasoningEffort` | `available` probe |
-|---|---|---|---|---|
-| pi | `true` | `true` | `true` | requires `task.parent.modelRegistry` (thrown `SpawnError` otherwise) |
-| claude | `true` | `true` | `true` | resolves the `claude` CLI on `PATH` (`resolveClaudeBinary`) |
-| codex | `false` | `true` | `true` | resolves the `codex` binary on `PATH` |
+| Backend | `steering` | `modelSelection` | `reasoningEffort` | `available` probe                                                    |
+| ------- | ---------- | ---------------- | ----------------- | -------------------------------------------------------------------- |
+| pi      | `true`     | `true`           | `true`            | requires `task.parent.modelRegistry` (thrown `SpawnError` otherwise) |
+| claude  | `true`     | `true`           | `true`            | resolves the `claude` CLI on `PATH` (`resolveClaudeBinary`)          |
+| codex   | `false`    | `true`           | `true`            | resolves the `codex` binary on `PATH`                                |
 
 For the full cross-harness matrix (cancellation semantics, persistence, output
 budgets, security implications, cost/latency, and a bounded implementation
@@ -454,14 +452,14 @@ number anywhere else in this doc set):
 
 ```json
 {
-  "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.216",
-    "effect": "^4.0.0-beta.99"
-  },
-  "devDependencies": {
-    "@effect/tsgo": "^0.24.2",
-    "typescript": "^7.0.2"
-  }
+	"dependencies": {
+		"@anthropic-ai/claude-agent-sdk": "^0.3.216",
+		"effect": "^4.0.0-beta.99"
+	},
+	"devDependencies": {
+		"@effect/tsgo": "^0.24.2",
+		"typescript": "^7.0.2"
+	}
 }
 ```
 
@@ -490,7 +488,7 @@ pnpm test:live # extension-specific: extensions/subagents' claude.test.ts + code
   Code / Codex sessions and are skipped individually when the corresponding CLI is not
   installed/authenticated locally. These are excluded from `pnpm test` on purpose (per
   `plans/001-separate-live-provider-tests.md`).
-- `pnpm run check` (repo root `tsc --noEmit`) and `pnpm run format:check` (prettier)
+- `pnpm run check` (repo root `tsc --noEmit`) and `pnpm run format:check` (fmtkit)
   should both stay green; there is no extension-local `npm install`/`npm run check`
   step — this package is a member of the root pnpm workspace, not an independently
   installed extension.
@@ -505,18 +503,18 @@ decision as of this refresh. If a future change reopens one of these, update the
 "Resolution" column in the same change (per the maintenance note at the end of this
 document).
 
-| # | Original question | Resolution (verify against source) |
-|---|---|---|
-| 1 | Per-backend spawn options shape | Option (a) shipped: one generic `model` string + `reasoning_effort` enum, interpreted per backend (`src/domain.ts` `SpawnTask`, §6.1). |
-| 2 | One-shot `exec()` mode | Not added. Only the interactive-session path (`spawn`/`send`) exists; no `exec(task): Effect<RunOutcome>` in `src/backend.ts`. |
-| 3 | Permissions/sandboxing for Claude/Codex children | Trusted cwds get `bypassPermissions` / `danger-full-access`; untrusted cwds never do (§6.2, `permission-policy.test.ts`). Not a global setting or per-spawn parameter — it is derived automatically from the trust boundary. |
-| 4 | Concurrency cap scope | Kept as one global `MAX_RUNNING = 4` across all backends (`src/manager.ts`), not per-backend. |
-| 5 | Steering parity across backends | `capabilities.steering` is `true` for pi and Claude, `false` for Codex (§6.3) — the UI is expected to reflect this rather than treating steering as a hard requirement for all three. |
-| 6 | Model/thinking inheritance across backends | pi inherits the parent's model/thinking level via its `ModelRegistry`; Claude/Codex simply omit the model option and defer to that backend's own default when none is given — no extra config block was added (§6.3). |
-| 7 | Binary/SDK discovery + failure UX | `available` probes the binary/registry per backend; `subagent_spawn` fails fast with a `BackendUnavailableError`-derived tool error rather than hiding the backend from the enum dynamically (`src/manager.ts` `spawn`). |
-| 8 | Result truncation budgets | Kept unchanged: 24KB result message, 48KB wait total / 16KB per agent, 2KB/20-line check preview (`index.ts` constants). |
-| 9 | Effect version pinning | Tracked via a caret range (`^4.0.0-beta.99`) and the lockfile, not an exact pin (§6.9). |
-| 10 | Persistence across reloads | Kept v1's kill-everything behavior; no reattach-after-reload support was added (§6.5). |
+| #   | Original question                                | Resolution (verify against source)                                                                                                                                                                                           |
+| --- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Per-backend spawn options shape                  | Option (a) shipped: one generic `model` string + `reasoning_effort` enum, interpreted per backend (`src/domain.ts` `SpawnTask`, §6.1).                                                                                       |
+| 2   | One-shot `exec()` mode                           | Not added. Only the interactive-session path (`spawn`/`send`) exists; no `exec(task): Effect<RunOutcome>` in `src/backend.ts`.                                                                                               |
+| 3   | Permissions/sandboxing for Claude/Codex children | Trusted cwds get `bypassPermissions` / `danger-full-access`; untrusted cwds never do (§6.2, `permission-policy.test.ts`). Not a global setting or per-spawn parameter — it is derived automatically from the trust boundary. |
+| 4   | Concurrency cap scope                            | Kept as one global `MAX_RUNNING = 4` across all backends (`src/manager.ts`), not per-backend.                                                                                                                                |
+| 5   | Steering parity across backends                  | `capabilities.steering` is `true` for pi and Claude, `false` for Codex (§6.3) — the UI is expected to reflect this rather than treating steering as a hard requirement for all three.                                        |
+| 6   | Model/thinking inheritance across backends       | pi inherits the parent's model/thinking level via its `ModelRegistry`; Claude/Codex simply omit the model option and defer to that backend's own default when none is given — no extra config block was added (§6.3).        |
+| 7   | Binary/SDK discovery + failure UX                | `available` probes the binary/registry per backend; `subagent_spawn` fails fast with a `BackendUnavailableError`-derived tool error rather than hiding the backend from the enum dynamically (`src/manager.ts` `spawn`).     |
+| 8   | Result truncation budgets                        | Kept unchanged: 24KB result message, 48KB wait total / 16KB per agent, 2KB/20-line check preview (`index.ts` constants).                                                                                                     |
+| 9   | Effect version pinning                           | Tracked via a caret range (`^4.0.0-beta.99`) and the lockfile, not an exact pin (§6.9).                                                                                                                                      |
+| 10  | Persistence across reloads                       | Kept v1's kill-everything behavior; no reattach-after-reload support was added (§6.5).                                                                                                                                       |
 
 ---
 

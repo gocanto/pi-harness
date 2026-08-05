@@ -13,8 +13,10 @@
 > §8.1 for the rationale and the deliberate-upgrade procedure. Earlier drafts of this guide
 > recommended an exact `4.0.0-beta.98` pin; that recommendation is stale and superseded.
 >
-> Audience: the agents migrating `firecrawl-search`, `ask-user`, `model-info`,
-> `git-info`, `ui-customization`, and `copy-all`.
+> Audience: extensions that have a genuine Effect-based async core, such as
+> `subagents`, `background-terminals`, and `file-search`. The simpler `git-info`,
+> `summaries`, `ask-user`, `model-info`, `ui-customization`, and `copy-all`
+> extensions intentionally use native promises or synchronous TypeScript.
 
 ---
 
@@ -29,44 +31,46 @@ Reach for Effect only where you actually get something from it:
 
 - **Yes:** async work that needs typed errors, cancellation via the tool `AbortSignal`,
   timeouts, retries/polling, or a resource whose lifetime must outlive one call
-  (child process, subscription) → child processes (`git-info`, `copy-all`), the
-  Firecrawl SDK calls (`firecrawl-search`), git/gh polling (`git-info`).
+  (child process, subscription) → the long-lived process/session managers and
+  streaming file-search work.
+- **No / barely:** one-shot command adapters such as `git-info` can use a small
+  promise-based runner with an `AbortSignal`; they do not need an Effect runtime.
 - **No / barely:** pure TUI popups and rendering (`ask-user`, `ui-customization`),
-  cross-extension channel plumbing, cost/token bookkeeping (`model-info`). These are
-  synchronous or already-Promise UI code; wrapping them in Effect adds ceremony and no
-  safety. Migrate them by keeping the logic and only touching whatever genuinely async
-  part benefits (usually nothing).
+  cross-extension channel plumbing, cost/token bookkeeping (`model-info`), and
+  simple promise workflows (`summaries`). These are synchronous or already-Promise
+  code; wrapping them in Effect adds ceremony and no safety.
 
 If an extension has no async core worth typing, the "migration" may be just adopting the
 toolchain (§1) and leaving the body plain. Don't invent an Effect layer to have one.
 
 ---
 
-## 1. Per-extension toolchain (copy this exactly)
+## 1. Effect extension toolchain (copy this exactly)
 
-Each extension is its own npm package with its own `node_modules`. Replicate the range
-policy below exactly — every workspace consumer uses the same caret range, and the
-lockfile (`pnpm-lock.yaml`) is what pins the actual resolved version (see §8.1).
+Each extension is its own npm package with its own `node_modules`. For extensions that
+actually use Effect, keep the range policy below synchronized; the lockfile
+(`pnpm-lock.yaml`) pins the resolved version (see §8.1). Extensions with a plain promise
+or synchronous core should not add these Effect dependencies or the language-service plugin.
 
 `package.json`:
 
 ```jsonc
 {
-  "name": "<ext>",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "check": "tsc --noEmit -p .",
-    "prepare": "effect-tsgo patch", // patches the Effect LS into the tsgo binary
-  },
-  "dependencies": {
-    "effect": "^4.0.0-beta.99", // same caret range as every other extension
-    "@effect/platform-node": "^4.0.0-beta.99", // only if you touch fs / child processes
-  },
-  "devDependencies": {
-    "@effect/tsgo": "^0.24.2",
-    "typescript": "^7.0.2",
-  },
+	"name": "<ext>",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"check": "tsc --noEmit -p .",
+		"prepare": "effect-tsgo patch", // patches the Effect LS into the tsgo binary
+	},
+	"dependencies": {
+		"effect": "^4.0.0-beta.99", // same caret range as other Effect extensions
+		"@effect/platform-node": "^4.0.0-beta.99", // only if you touch fs / child processes
+	},
+	"devDependencies": {
+		"@effect/tsgo": "^0.24.2",
+		"typescript": "^7.0.2",
+	},
 }
 ```
 
@@ -74,11 +78,11 @@ lockfile (`pnpm-lock.yaml`) is what pins the actual resolved version (see §8.1)
 
 ```jsonc
 {
-  "extends": "../../tsconfig.json",
-  "compilerOptions": {
-    "plugins": [{ "name": "@effect/language-service" }],
-  },
-  "include": ["index.ts", "src/**/*.ts", "*.test.ts"],
+	"extends": "../../tsconfig.json",
+	"compilerOptions": {
+		"plugins": [{ "name": "@effect/language-service" }],
+	},
+	"include": ["index.ts", "src/**/*.ts", "*.test.ts"],
 }
 ```
 
@@ -113,34 +117,34 @@ message). This is lifted verbatim from `src/runtime.ts` — reuse it.
 
 ```ts
 // src/runtime.ts
-import { Cause, Exit, Layer, ManagedRuntime, type Effect } from "effect";
-import { NodeServices } from "@effect/platform-node"; // only if you need fs / processes
+import { Cause, Exit, Layer, ManagedRuntime, type Effect } from 'effect';
+import { NodeServices } from '@effect/platform-node'; // only if you need fs / processes
 
 // Compose your services here (see §3). NodeServices.layer =
 // ChildProcessSpawner | FileSystem | Path | Crypto | Stdio | Terminal.
 const AppLayer = Layer.mergeAll(NodeServices.layer /*, MyServiceLive */);
 
 export function createRuntime() {
-  return ManagedRuntime.make(AppLayer);
+	return ManagedRuntime.make(AppLayer);
 }
+
 export type ExtRuntime = ReturnType<typeof createRuntime>;
 
 /** Run an effect from an async handler: value on success, thrown Error otherwise. */
-export async function runTool<A, E>(
-  runtime: ExtRuntime,
-  effect: Effect.Effect<A, E>,
-  options: { signal?: AbortSignal; interruptMessage?: string } = {},
-) {
-  const exit = await runtime.runPromiseExit(
-    effect,
-    options.signal ? { signal: options.signal } : undefined,
-  );
-  if (Exit.isSuccess(exit)) return exit.value;
-  if (Cause.hasInterruptsOnly(exit.cause)) {
-    throw new Error(options.interruptMessage ?? "Operation was aborted.");
-  }
-  const [first] = Cause.prettyErrors(exit.cause);
-  throw new Error(first?.message ?? Cause.pretty(exit.cause));
+export async function runTool<A, E>(runtime: ExtRuntime, effect: Effect.Effect<A, E>, options: { signal?: AbortSignal; interruptMessage?: string } = {}) {
+	const exit = await runtime.runPromiseExit(effect, options.signal ? { signal: options.signal } : undefined);
+
+	if (Exit.isSuccess(exit)) {
+		return exit.value;
+	}
+
+	if (Cause.hasInterruptsOnly(exit.cause)) {
+		throw new Error(options.interruptMessage ?? 'Operation was aborted.');
+	}
+
+	const [first] = Cause.prettyErrors(exit.cause);
+
+	throw new Error(first?.message ?? Cause.pretty(exit.cause));
 }
 ```
 
@@ -149,25 +153,32 @@ Wire it into the extension lifecycle (lazy build, dispose on shutdown):
 ```ts
 // index.ts
 export default function (pi: ExtensionAPI) {
-  let runtime: ExtRuntime | undefined;
-  const getRuntime = () => (runtime ??= createRuntime());
+	let runtime: ExtRuntime | undefined;
 
-  pi.registerTool({
-    name: "my_tool",
-    parameters: Type.Object({/* typebox */}),
-    async execute(_id, params, signal) {
-      return await runTool(getRuntime(), myEffect(params), {
-        signal,
-        interruptMessage: "Cancelled.",
-      });
-    },
-  });
+	const getRuntime = () => (runtime ??= createRuntime());
 
-  pi.on("session_shutdown", async () => {
-    const closing = runtime;
-    runtime = undefined;
-    await closing?.dispose(); // runs all finalizers: kills scoped child processes, etc.
-  });
+	pi.registerTool({
+		name: 'my_tool',
+		parameters: Type.Object({/* typebox */}),
+		async execute(_id, params, signal) {
+			return await runTool(
+				getRuntime(),
+				myEffect(params),
+				{
+					signal,
+					interruptMessage: 'Cancelled.',
+				},
+			);
+		},
+	});
+
+	pi.on('session_shutdown', async () => {
+		const closing = runtime;
+
+		runtime = undefined;
+
+		await closing?.dispose(); // runs all finalizers: kills scoped child processes, etc.
+	});
 }
 ```
 
@@ -190,36 +201,31 @@ Mirror the subagents code. Class-style `Context.Service`, `Layer.effect`/`Layer.
 `Data.TaggedError` for domain errors.
 
 ```ts
-import { Context, Data, Effect, Layer } from "effect";
+import { Context, Data, Effect, Layer } from 'effect';
 
 // Domain error — yieldable, tag-narrowable with Effect.catchTag:
-export class GitError extends Data.TaggedError("GitError")<{
-  readonly message: string;
+export class GitError extends Data.TaggedError('GitError')<{
+	readonly message: string;
 }> {}
 
 // Service: the class value is the key AND the type.
 export interface GitShape {
-  readonly status: Effect.Effect<string, GitError>;
+	readonly status: Effect.Effect<string, GitError>;
 }
-export class Git extends Context.Service<Git, GitShape>()("gitinfo/Git") {}
+
+export class Git extends Context.Service<Git, GitShape>()('gitinfo/Git') {}
 
 // Layer building it (Layer.effect can use scoped resources; Layer.sync for pure):
-export const GitLive: Layer.Layer<Git, never, ChildProcessSpawner> =
-  Layer.effect(
-    Git,
-    Effect.gen(function* () {
-      const spawner = yield* ChildProcessSpawner; // dependency, provided by NodeServices.layer
-      return Git.of({
-        status: spawner
-          .string(ChildProcess.make("git", ["status", "--porcelain"]))
-          .pipe(
-            Effect.mapError(
-              (cause) => new GitError({ message: String(cause) }),
-            ),
-          ),
-      });
-    }),
-  );
+export const GitLive: Layer.Layer<Git, never, ChildProcessSpawner> = Layer.effect(
+	Git,
+	Effect.gen(function* () {
+		const spawner = yield* ChildProcessSpawner; // dependency, provided by NodeServices.layer
+
+		return Git.of({
+			status: spawner.string(ChildProcess.make('git', ['status', '--porcelain'])).pipe(Effect.mapError((cause) => new GitError({ message: String(cause) }))),
+		});
+	}),
+);
 ```
 
 Provide dependencies with `Layer.provide`, compose with `Layer.mergeAll` (see §2 `AppLayer`).
@@ -235,17 +241,17 @@ error; the callback receives an `AbortSignal` tied to fiber interruption — for
 SDK that accepts one so tool cancellation propagates.
 
 ```ts
-import { Data, Effect } from "effect";
+import { Data, Effect } from 'effect';
 
-class FirecrawlError extends Data.TaggedError("FirecrawlError")<{
-  readonly cause: unknown;
+class FirecrawlError extends Data.TaggedError('FirecrawlError')<{
+	readonly cause: unknown;
 }> {}
 
 const search = (client: Firecrawl, query: string) =>
-  Effect.tryPromise({
-    try: (signal) => client.search(query, {/* …, signal? if supported */}),
-    catch: (cause) => new FirecrawlError({ cause }),
-  });
+	Effect.tryPromise({
+		try: (signal) => client.search(query, {/* …, signal? if supported */}),
+		catch: (cause) => new FirecrawlError({ cause }),
+	});
 ```
 
 There's no `Layer` here unless you want the client as a service. For a single tool this is
@@ -255,25 +261,24 @@ string trimming.
 
 ---
 
-## 5. Recipe: child processes + timeout + polling (git-info, copy-all)
+## 5. Recipe: child processes + timeout + polling
 
-`git-info` shells out to `git`/`gh` with per-command timeouts and polls on an interval;
-`copy-all` pipes text into `pbcopy`. Two viable levels — pick the lightest that fits.
+For long-lived process/session work, use Effect's scoped process and polling APIs. For
+one-shot commands such as `git-info`, a native promise-based adapter with an
+`AbortSignal` and a timer is the lighter choice.
 
-**Simple, one-shot, small:** if all you do is "run a command, capture stdout, with a
-timeout," the Effect win is `Effect.timeout` + interruption killing the child. Use the
-spawner service:
+**Effect-based process work:** when the process is part of a scoped Effect runtime, the
+win is `Effect.timeout` plus interruption killing the child. Use the spawner service:
 
 ```ts
-import { Effect } from "effect";
-import { ChildProcess } from "effect/unstable/process";
-import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner";
+import { Effect } from 'effect';
+import { ChildProcess } from 'effect/unstable/process';
+import { ChildProcessSpawner } from 'effect/unstable/process/ChildProcessSpawner';
 
 const gitStatus = Effect.gen(function* () {
-  const spawner = yield* ChildProcessSpawner;
-  return yield* spawner
-    .string(ChildProcess.make("git", ["status", "--porcelain"], { cwd }))
-    .pipe(Effect.timeout("3 seconds")); // fails with Cause.TimeoutError (tag "TimeoutError")
+	const spawner = yield* ChildProcessSpawner;
+
+	return yield* spawner.string(ChildProcess.make('git', ['status', '--porcelain'], { cwd })).pipe(Effect.timeout('3 seconds')); // fails with Cause.TimeoutError (tag "TimeoutError")
 });
 ```
 
@@ -286,19 +291,18 @@ builder / streaming / kill semantics are in `effect-v4-notes.md §6`.
 cancels cleanly on dispose:
 
 ```ts
-import { Effect, Schedule } from "effect";
+import { Effect, Schedule } from 'effect';
 
 const pollLoop = refresh.pipe(
-  Effect.catchCause(() => Effect.void), // don't let one failure kill the loop
-  Effect.repeat(Schedule.spaced("3 seconds")),
+	Effect.catchCause(() => Effect.void), // don't let one failure kill the loop
+	Effect.repeat(Schedule.spaced('3 seconds')),
 );
+
 const fiber = runtime.runFork(pollLoop); // interrupted by runtime.dispose()
 ```
 
-**When to stay plain:** `copy-all` spawning `pbcopy` is a trivial one-shot with no
-cancellation need — the existing `node:child_process` + Promise wrapper is honestly fine.
-Migrate it only for consistency; if you do, `Effect.callback` around `child.once("exit", …)`
-(see notes §4) is the minimal wrapper. Don't add a service/layer for a clipboard write.
+For a trivial one-shot such as a clipboard write, use `node:child_process` and a Promise.
+Do not add a service or layer merely for consistency.
 
 ---
 
@@ -307,16 +311,15 @@ Migrate it only for consistency; if you do, `Effect.callback` around `child.once
 These are the "leave it mostly plain" cases.
 
 - `ask-user` is a TUI popup that resolves a Promise when the user picks. That Promise already
-  models the one async thing. Effect adds nothing; if you want uniformity, wrap the final
-  await in `Effect.tryPromise` at the boundary and stop there. Do **not** build a service.
+  models the one async thing. Keep it plain and do **not** build a service.
 - `ui-customization` and `model-info` are renderers / event bookkeepers driven by
   `pi.on(...)` and cross-extension channels (`shared/dashboard-state.ts`). Channels are a
   pi-native mechanism — keep them. State counting and formatting stay synchronous TS.
 - If `model-info` has a periodic "live update" tick, the §5 polling pattern applies; but a
   plain timer here is also acceptable since there's no resource to tear down.
 
-The migration bar for these: adopt the toolchain (§1) so they typecheck under TS7 + the
-Effect LS, and only touch runtime code that has a real async/resource concern.
+The migration bar for these is simply to keep the host callbacks and synchronous state
+plain; only introduce Effect when a real async/resource concern appears.
 
 ---
 
@@ -341,11 +344,13 @@ the pinned versions. If a migrated extension fails `check` with `Effect.fork`/`S
 
 ## 8. Don'ts (keep it lean)
 
-1. **Version policy: a shared floating beta range, pinned by the lockfile.** Every
-   workspace consumer declares `effect` and `@effect/platform-node` (and `@effect/tsgo`) as
-   the same caret range — `^4.0.0-beta.99` for `effect`/`@effect/platform-node`,
-   `^0.24.2` for `@effect/tsgo` — rather than an exact version. `pnpm-lock.yaml` is what
-   actually pins the resolved version for reproducible installs (`pnpm install
+1. **Version policy: a shared floating beta range, pinned by the lockfile.** Each
+   Effect-using workspace consumer declares `effect` and, where needed,
+   `@effect/platform-node`/`@effect/tsgo` using the synchronized caret ranges —
+   `^4.0.0-beta.99` for `effect`/`@effect/platform-node` and `^0.24.2` for
+   `@effect/tsgo` — rather than an exact version. Plain extensions should not declare
+   these packages. `pnpm-lock.yaml` pins the resolved version for reproducible installs
+   (`pnpm install
 --frozen-lockfile`), and today that resolves a single version of each package across the
    whole workspace (`pnpm why effect -r` shows exactly one). Rationale: a caret range whose
    base version carries a prerelease tag only admits _other prereleases that share the same
@@ -374,6 +379,6 @@ verify` (and `pnpm install --frozen-lockfile` to confirm the lockfile is reprodu
    in `session_shutdown` run them.
 5. **Don't over-test.** A `check` that passes plus one focused runtime test (where behavior
    is non-obvious) beats a wall of defensive unit tests.
-6. **Don't run root scripts.** No repo-root `tsc`, `prettier`, or `npm run format`; stay
-inside `extensions/<ext>`.
-</content>
+6. **Don't run root scripts.** No repo-root `tsc`, `fmtkit`, or `npm run format`; stay
+   inside `extensions/<ext>`.
+   </content>
